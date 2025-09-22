@@ -1,0 +1,74 @@
+volumes:
+  pg-data:
+  redis-data:
+  rabbitmq-data:
+
+networks:
+  backend:
+
+services:
+  # -------------------------
+  # PostgreSQL (Shared DB)
+  # -------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: always
+    env_file:
+      - .env/postgres
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - backend
+    ports:
+      - "5432:5432"
+
+  # -------------------------
+  # Keycloak
+  # -------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.4
+    container_name: keycloak
+    command: start-dev
+    env_file:
+      - .env/keycloak
+    depends_on:
+      - postgres
+    networks:
+      - backend
+    ports:
+      - "8080:8080"
+
+  # -------------------------
+  # Redis
+  # -------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    env_file:
+      - .env/redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    ports:
+      - "6379:6379"
+
+  # -------------------------
+  # RabbitMQ
+  # -------------------------
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq
+    restart: always
+    env_file:
+      - .env/rabbitmq
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - backend
+    ports:
+      - "5672:5672" # AMQP
+      - "15672:15672" # Management UI
