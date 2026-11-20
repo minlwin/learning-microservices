@@ -16,8 +16,8 @@ mv .github/workflows/junit.yml ../.github/workflows/junit.yml
 Commit the root workflow together with your project changes and push it. Its
 commands run inside `ep02-oauth2-server` and test the parent Maven reactor:
 auth-server, consumer-service, and management-service. Modules without tests
-are allowed. Java 25 matches the parent POM. Current JUnit tests use mocks and
-do not require PostgreSQL, Mailpit, or Kafka services.
+are allowed. Java 25 matches the parent POM. Current JUnit tests use mocks and an embedded H2 JDBC database;
+they do not require PostgreSQL, Mailpit, or Kafka services.
 
 The workflow runs on main pushes, pull requests targeting main, merge queue
 checks, and manual runs. It uploads available Surefire reports even if tests

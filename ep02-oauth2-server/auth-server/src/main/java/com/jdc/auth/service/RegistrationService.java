@@ -19,7 +19,6 @@ import com.jdc.auth.exceptions.OtpVerificationException;
 import com.jdc.auth.model.entity.Identity;
 import com.jdc.auth.model.entity.Profile;
 import com.jdc.auth.model.entity.Profile.Status;
-import com.jdc.auth.model.entity.Profile.System;
 import com.jdc.auth.model.entity.Registration;
 import com.jdc.auth.model.entity.dto.OtpRecord;
 import com.jdc.auth.model.entity.dto.OtpRecord.CheckStatus;
@@ -36,6 +35,11 @@ import lombok.RequiredArgsConstructor;
 public class RegistrationService {
 	
 	private static final String NO_DATA_MESSAGE = "No registration was found for the provided ID.";
+	@Value("${app.auth.registration.system:Consumer}")
+	private String profileSystem = "Consumer";
+	@Value("${app.auth.registration.role:Consumer}")
+	private String profileRole = "Consumer";
+
 	private final PasswordEncoder passwordEncoder;
 
 	private final EmailValidationService emailValidationService;
@@ -152,14 +156,14 @@ public class RegistrationService {
 			return identityRepo.save(entity);
 		});
 		
-		if(profileRepo.existsByIdentityAndSystem(identity, System.Consumer)) {
+		if(profileRepo.existsByIdentityAndSystem(identity, profileSystem)) {
 			throw new BusinessRuleViolationException("A consumer account already exists for this email address.");
 		}
 
 		var profile = new Profile();
 		profile.setIdentity(identity);
-		profile.setSystem(System.Consumer);
-		profile.setRole(Profile.Role.Consumer);
+		profile.setSystem(profileSystem);
+		profile.setRole(profileRole);
 		profile.setStatus(Status.Pending);
 		profile.setPassword(passwordEncoder.encode(form.password()));
 		

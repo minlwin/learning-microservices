@@ -73,13 +73,10 @@ Resource-server settings:
 profile and login_ticket. Recreate the development database with your chosen
 Docker reset workflow before running; no migration files were added.
 
-OAuth authorizations are still in memory. Use shared durable authorization
-storage before deploying multiple auth replicas. The database version check is
-shared, but one replica cannot introspect tokens issued only in another
-replica's memory. No Kafka events were implemented.
+OAuth authorizations and clients now use shared PostgreSQL JDBC storage. Replicas using the same database can read token state issued by other instances. Persistent shared signing keys remain a separate deployment task. No Kafka events were implemented.
 
 Tests cover token exchange, multiple devices, logout, old refresh rejection,
 old ticket rejection, separate-profile isolation, fresh login, protected internal
 credentials, audience restrictions, and resource-server live-check behavior.
-The local checks use mocked repositories/HTTP transports, not a live PostgreSQL
+The local checks use an embedded H2 JDBC database and mocked profile repositories/HTTP transports, not a live PostgreSQL
 instance or a deployed network environment.

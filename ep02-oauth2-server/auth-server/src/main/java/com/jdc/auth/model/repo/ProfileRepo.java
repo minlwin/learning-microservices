@@ -13,9 +13,9 @@ import com.jdc.auth.model.entity.Identity;
 
 public interface ProfileRepo extends JpaRepository<Profile, UUID>{
 
-	Optional<Profile> findByIdentityUsernameAndSystem(String username, Profile.System system);
+	Optional<Profile> findByIdentityUsernameAndSystem(String username, String system);
 
-	boolean existsByIdentityAndSystem(Identity identity, Profile.System system);
+	boolean existsByIdentityAndSystem(Identity identity, String system);
 
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("update Profile p set p.tokenVersion = p.tokenVersion + 1 where p.id = :id and p.tokenVersion = :expected")

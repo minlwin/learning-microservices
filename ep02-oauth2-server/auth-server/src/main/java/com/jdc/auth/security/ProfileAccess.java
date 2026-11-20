@@ -1,18 +1,15 @@
 package com.jdc.auth.security;
 
 import com.jdc.auth.model.entity.Profile;
+import com.jdc.auth.props.AuthenticationProps;
 
-/** Validates client system and the roles permitted for that system. */
+/** Validates client system and the roles permitted by configuration. */
 public final class ProfileAccess {
-	private ProfileAccess() { }
+	private ProfileAccess() {
+	}
 
-	public static boolean allows(Profile.System clientSystem, Profile profile) {
-		if (clientSystem == null || clientSystem != profile.getSystem() || profile.getRole() == null) {
-			return false;
-		}
-		return switch (clientSystem) {
-			case Consumer -> profile.getRole() == Profile.Role.Consumer;
-			case Management -> profile.getRole() == Profile.Role.Management || profile.getRole() == Profile.Role.Administrator;
-		};
+	public static boolean allows(String clientSystem, Profile profile, AuthenticationProps properties) {
+		return clientSystem != null && clientSystem.equals(profile.getSystem())
+				&& properties.allows(clientSystem, profile.getRole());
 	}
 }

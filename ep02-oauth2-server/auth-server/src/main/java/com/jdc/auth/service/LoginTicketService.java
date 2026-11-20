@@ -56,11 +56,11 @@ public class LoginTicketService {
 			throw invalidTicket();
 		}
 		var ticket = repo.findByTokenHash(hash(value)).orElseThrow(this::invalidTicket);
-		var system = properties.getClients().get(clientId);
+		var system = properties.systemForClient(clientId);
 		if(ticket.getConsumedAt() != null || !ticket.getExpiresAt().isAfter(Instant.now())
 				|| !ticket.getClientId().equals(clientId) || system == null
 				|| ticket.getTokenVersion() != ticket.getProfile().getTokenVersion()
-				|| !ProfileAccess.allows(system, ticket.getProfile())
+				|| !ProfileAccess.allows(system, ticket.getProfile(), properties)
 				|| ticket.getProfile().getStatus() != Profile.Status.Active) {
 			throw invalidTicket();
 		}

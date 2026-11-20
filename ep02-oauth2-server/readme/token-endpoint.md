@@ -69,11 +69,4 @@ blocked. Resource servers now use the authenticated custom endpoint
 server authorization state and the profile's current token version. They also
 check issuer and audience. They do not rely on offline JWT signature checks.
 
-This learning configuration generates an RSA signing key at startup and keeps
-OAuth authorizations and refresh state in memory. A restart loses that state
-and therefore rejects all previously issued access and refresh tokens during
-live validation. Login tickets and profile token versions remain in PostgreSQL.
-Durable authorization storage and managed signing keys are needed before
-production/multiple replicas. HTTPS, public-client support, login rate limits,
-and any required MFA must be addressed before deployment. No Kafka publishing
-is added here.
+Client registrations and OAuth authorizations now use PostgreSQL through Spring's JDBC implementations. Token records survive process restarts and can be read by other instances using the same database. Signing keys are still generated at startup; persistent shared signing keys remain a deployment task. Current live introspection validates stored authorization state rather than offline JWT signatures. Login tickets and profile token versions also remain in PostgreSQL. No Kafka publishing is added here.

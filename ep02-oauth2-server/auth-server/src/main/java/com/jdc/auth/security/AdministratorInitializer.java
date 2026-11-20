@@ -10,6 +10,7 @@ import com.jdc.auth.model.entity.Profile;
 import com.jdc.auth.model.repo.IdentityRepo;
 import com.jdc.auth.model.repo.ProfileRepo;
 import com.jdc.auth.props.AdministratorProps;
+import com.jdc.auth.props.AuthenticationProps;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 
@@ -22,6 +23,7 @@ public class AdministratorInitializer implements ApplicationRunner {
 	private final ProfileRepo profiles;
 	private final IdentityRepo identities;
 	private final AdministratorProps properties;
+	private final AuthenticationProps authenticationProperties;
 	private final PasswordEncoder passwordEncoder;
 
 	@Override
@@ -43,6 +45,10 @@ public class AdministratorInitializer implements ApplicationRunner {
 			throw new IllegalStateException("Administrator username and password must be configured for the first startup.");
 		}
 
+		if (!authenticationProperties.allows(properties.getSystem(), properties.getRole())) {
+			throw new IllegalStateException("Administrator requires a configured system and permitted role.");
+		}
+
 		var identity = identities.findOneByUsername(username).orElseGet(() -> {
 			var created = new Identity();
 			created.setUsername(username);
@@ -51,8 +57,8 @@ public class AdministratorInitializer implements ApplicationRunner {
 
 		var administrator = new Profile();
 		administrator.setIdentity(identity);
-		administrator.setSystem(Profile.System.Management);
-		administrator.setRole(Profile.Role.Administrator);
+		administrator.setSystem(properties.getSystem());
+		administrator.setRole(properties.getRole());
 		administrator.setStatus(Profile.Status.Active);
 		administrator.setPassword(passwordEncoder.encode(password));
 		profiles.save(administrator);

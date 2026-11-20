@@ -9,26 +9,22 @@ CREATE TABLE auth.identity (
     username VARCHAR(255) NOT NULL UNIQUE
 );
 
--- Enums use JPA's default ORDINAL mapping:
--- system: Consumer=0, Management=1
--- role: Consumer=0, Management=1, Administrator=2
+-- System and role are configuration-defined string identifiers.
+-- Status uses JPA's default ORDINAL mapping:
 -- status: Pending=0, Active=1, Locked=2, Closed=3
 CREATE TABLE auth.profile (
     id UUID PRIMARY KEY,
     identity_id UUID NOT NULL,
-    system SMALLINT NOT NULL,
-    role SMALLINT NOT NULL,
+    system VARCHAR(255) NOT NULL,
+    role VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL,
     status SMALLINT NOT NULL,
     token_version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT uk_profile_identity_system UNIQUE (identity_id, system),
     CONSTRAINT fk_profile_identity FOREIGN KEY (identity_id)
         REFERENCES auth.identity (id),
-    CONSTRAINT ck_profile_system CHECK (system BETWEEN 0 AND 1),
-    CONSTRAINT ck_profile_role CHECK (role BETWEEN 0 AND 2),
-    CONSTRAINT ck_profile_system_role CHECK (
-        (system = 0 AND role = 0) OR (system = 1 AND role IN (1, 2))
-    ),
+    CONSTRAINT ck_profile_system CHECK (length(trim(system)) > 0),
+    CONSTRAINT ck_profile_role CHECK (length(trim(role)) > 0),
     CONSTRAINT ck_profile_status CHECK (status BETWEEN 0 AND 3)
 );
 
@@ -74,5 +70,66 @@ CREATE TABLE auth.login_ticket (
     expires_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     consumed_at TIMESTAMP(6) WITH TIME ZONE
 );
+
+-- Spring Security JDBC repositories (PostgreSQL-compatible types).
+CREATE TABLE auth.oauth2_registered_client (
+    id varchar(100) NOT NULL,
+    client_id varchar(100) NOT NULL,
+    client_id_issued_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    client_secret varchar(200) DEFAULT NULL,
+    client_secret_expires_at timestamp with time zone DEFAULT NULL,
+    client_name varchar(200) NOT NULL,
+    client_authentication_methods varchar(1000) NOT NULL,
+    authorization_grant_types varchar(1000) NOT NULL,
+    redirect_uris varchar(1000) DEFAULT NULL,
+    post_logout_redirect_uris varchar(1000) DEFAULT NULL,
+    scopes varchar(1000) NOT NULL,
+    client_settings varchar(2000) NOT NULL,
+    token_settings varchar(2000) NOT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE auth.oauth2_authorization (
+    id varchar(100) NOT NULL,
+    registered_client_id varchar(100) NOT NULL,
+    principal_name varchar(200) NOT NULL,
+    authorization_grant_type varchar(100) NOT NULL,
+    authorized_scopes varchar(1000) DEFAULT NULL,
+    attributes text DEFAULT NULL,
+    state varchar(500) DEFAULT NULL,
+    authorization_code_value text DEFAULT NULL,
+    authorization_code_issued_at timestamp with time zone DEFAULT NULL,
+    authorization_code_expires_at timestamp with time zone DEFAULT NULL,
+    authorization_code_metadata text DEFAULT NULL,
+    access_token_value text DEFAULT NULL,
+    access_token_issued_at timestamp with time zone DEFAULT NULL,
+    access_token_expires_at timestamp with time zone DEFAULT NULL,
+    access_token_metadata text DEFAULT NULL,
+    access_token_type varchar(100) DEFAULT NULL,
+    access_token_scopes varchar(1000) DEFAULT NULL,
+    oidc_id_token_value text DEFAULT NULL,
+    oidc_id_token_issued_at timestamp with time zone DEFAULT NULL,
+    oidc_id_token_expires_at timestamp with time zone DEFAULT NULL,
+    oidc_id_token_metadata text DEFAULT NULL,
+    refresh_token_value text DEFAULT NULL,
+    refresh_token_issued_at timestamp with time zone DEFAULT NULL,
+    refresh_token_expires_at timestamp with time zone DEFAULT NULL,
+    refresh_token_metadata text DEFAULT NULL,
+    user_code_value text DEFAULT NULL,
+    user_code_issued_at timestamp with time zone DEFAULT NULL,
+    user_code_expires_at timestamp with time zone DEFAULT NULL,
+    user_code_metadata text DEFAULT NULL,
+    device_code_value text DEFAULT NULL,
+    device_code_issued_at timestamp with time zone DEFAULT NULL,
+    device_code_expires_at timestamp with time zone DEFAULT NULL,
+    device_code_metadata text DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE UNIQUE INDEX uk_oauth2_registered_client_client_id
+    ON auth.oauth2_registered_client (client_id);
+ALTER TABLE auth.oauth2_authorization
+    ADD CONSTRAINT fk_oauth2_authorization_client FOREIGN KEY (registered_client_id)
+    REFERENCES auth.oauth2_registered_client (id);
 
 COMMIT;

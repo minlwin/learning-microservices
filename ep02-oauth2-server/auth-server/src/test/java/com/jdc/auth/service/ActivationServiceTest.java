@@ -131,8 +131,8 @@ class ActivationServiceTest {
 		var result = service.initialize(activation.getId(), new InitializationForm("password"));
 		var captor = ArgumentCaptor.forClass(Profile.class);
 		verify(profiles).save(captor.capture());
-		assertEquals(Profile.System.Management, captor.getValue().getSystem());
-		assertEquals(Profile.Role.Management, captor.getValue().getRole());
+		assertEquals("Management", captor.getValue().getSystem());
+		assertEquals("Management", captor.getValue().getRole());
 		assertEquals(Profile.Status.Active, captor.getValue().getStatus());
 		assertEquals("hashed-password", captor.getValue().getPassword());
 		assertEquals(captor.getValue().getId(), result.id());

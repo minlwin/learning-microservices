@@ -30,6 +30,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ActivationService {
 
+	@Value("${app.auth.activation.system:Management}")
+	private String profileSystem = "Management";
+	@Value("${app.auth.activation.role:Management}")
+	private String profileRole = "Management";
+
 	private final ActivationRepo activationRepo;
 	private final IdentityRepo identityRepo;
 	private final ProfileRepo profileRepo;
@@ -91,13 +96,13 @@ public class ActivationService {
 			created.setUsername(activation.getEmail());
 			return identityRepo.save(created);
 		});
-		if(profileRepo.existsByIdentityAndSystem(identity, Profile.System.Management)) {
+		if(profileRepo.existsByIdentityAndSystem(identity, profileSystem)) {
 			throw new BusinessRuleViolationException("A management account already exists for this email address.");
 		}
 		var profile = new Profile();
 		profile.setIdentity(identity);
-		profile.setSystem(Profile.System.Management);
-		profile.setRole(Profile.Role.Management);
+		profile.setSystem(profileSystem);
+		profile.setRole(profileRole);
 		profile.setStatus(Profile.Status.Active);
 		profile.setPassword(passwordEncoder.encode(form.password()));
 		profile = profileRepo.save(profile);

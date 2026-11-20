@@ -80,15 +80,15 @@ class ResourceSecurityConfigTest {
 		assertThrows(BadOpaqueTokenException.class, () -> wrongAudience.introspect("token"));
 		transport.verify();
 	}
-	@Test void retainsAdministratorRoleFromTrustedIntrospectionResponse() {
+	@Test void retainsConfiguredRoleFromTrustedIntrospectionResponse() {
 		var builder = RestClient.builder();
 		var transport = MockRestServiceServer.bindTo(builder).build();
 		var http = builder.build();
-		var json = ACTIVE.substring(0, ACTIVE.length() - 1) + ",\"roles\":[\"Administrator\"]}";
+		var json = ACTIVE.substring(0, ACTIVE.length() - 1) + ",\"roles\":[\"CustomOperator\"]}";
 		transport.expect(requestTo(URI)).andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
 		var introspector = new ResourceSecurityConfig().liveTokenIntrospector(URI, http, "http://localhost:8080", "consumer.api");
 		var principal = introspector.introspect("token");
-		assertTrue(principal.getAuthorities().stream().anyMatch(authority -> authority.getAuthority().equals("ROLE_Administrator")));
+		assertTrue(principal.getAuthorities().stream().anyMatch(authority -> authority.getAuthority().equals("ROLE_CustomOperator")));
 		transport.verify();
 	}
 

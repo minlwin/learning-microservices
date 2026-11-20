@@ -24,7 +24,8 @@ public class TokenIntrospectionApi {
 		try {
 			var principal = tokens.validate(token);
 			Collection<?> audiences = principal.getAttribute("aud");
-			var allowed = properties.getResourceAudiences().getOrDefault(resource.getName(), List.of());
+			var definition = properties.getResources().get(resource.getName());
+			var allowed = definition == null ? List.<String>of() : definition.getAudiences();
 			if (audiences == null || audiences.stream().noneMatch(allowed::contains)) {
 				throw new BadCredentialsException("Invalid audience.");
 			}

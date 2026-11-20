@@ -51,22 +51,39 @@ spring:
 
 app:
   auth:
-    resource-secrets:
-      consumer-service: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
-      management-service: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
-    resource-audiences:
-      consumer-service: [consumer.api, management.api]
-      management-service: [management.api]
+    systems:
+      Consumer:
+        roles: [Consumer]
+      Management:
+        roles: [Management, Administrator]
+    registration:
+      system: Consumer
+      role: Consumer
+    activation:
+      system: Management
+      role: Management
+    resources:
+      consumer-service:
+        secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
+        audiences: [consumer.api, management.api]
+      management-service:
+        secret: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
+        audiences: [management.api]
     issuer: ${AUTH_ISSUER:http://localhost:8080}
-    client-secrets:
-      consumer-demo: ${CONSUMER_CLIENT_SECRET:consumer-demo-secret}
-      management-demo: ${MANAGEMENT_CLIENT_SECRET:management-demo-secret}
     ticket-lifetime-seconds: 60
     access-token-time-to-live: ${ACCESS_TOKEN_TIME_TO_LIVE:10m}
     refresh-token-time-to-live: ${REFRESH_TOKEN_TIME_TO_LIVE:8h}
     clients:
-      consumer-demo: Consumer
-      management-demo: Management
+      consumer-demo:
+        system: Consumer
+        scopes: [consumer.api]
+        audiences: [consumer.api]
+        secret: ${CONSUMER_CLIENT_SECRET:consumer-demo-secret}
+      management-demo:
+        system: Management
+        scopes: [management.api]
+        audiences: [management.api]
+        secret: ${MANAGEMENT_CLIENT_SECRET:management-demo-secret}
   mail:
     from: ${MAIL_FROM:no-reply@wallet-demo.local}
   otp:
@@ -79,5 +96,7 @@ app:
       missing-count: 3
       waiting-duration: 30
   administrator:
+    system: Management
+    role: Administrator
     username: ${ADMINISTRATOR_USERNAME:admin@example.com}
     password: ${ADMINISTRATOR_PASSWORD:password}

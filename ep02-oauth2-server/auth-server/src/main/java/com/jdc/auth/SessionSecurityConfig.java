@@ -49,12 +49,12 @@ public class SessionSecurityConfig {
 			PasswordEncoder encoder, @Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors) throws Exception {
 		var users = new ArrayList<UserDetails>();
 		
-		for (var entry : properties.getResourceSecrets().entrySet()) {
-			if (entry.getValue().isBlank()) {
+		for (var entry : properties.getResources().entrySet()) {
+			if (entry.getValue().getSecret() == null || entry.getValue().getSecret().isBlank()) {
 				throw new IllegalStateException("Missing resource-server secret.");
 			}
 			var user = User.withUsername(entry.getKey());
-			user.password(encoder.encode(entry.getValue()));
+			user.password(encoder.encode(entry.getValue().getSecret()));
 			user.roles("RESOURCE_SERVER");
 			users.add(user.build());
 		}

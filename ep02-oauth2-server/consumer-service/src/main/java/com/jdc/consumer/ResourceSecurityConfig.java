@@ -63,9 +63,8 @@ public class ResourceSecurityConfig {
 			var authorities = new ArrayList<GrantedAuthority>(principal.getAuthorities());
 			Object roles = principal.getAttribute("roles");
 			if (roles instanceof Collection<?> roleNames) {
-				var knownRoles = Set.of("Consumer", "Management", "Administrator");
 				for (var role : roleNames) {
-					if (role instanceof String name && knownRoles.contains(name)) {
+					if (role instanceof String name && !name.isBlank()) {
 						authorities.add(new SimpleGrantedAuthority("ROLE_" + name));
 					}
 				}

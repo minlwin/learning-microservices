@@ -33,7 +33,7 @@ public class AuthenticationService {
 	@Transactional
 	public AuthenticationResult authenticate(AuthenticationForm form) {
 		
-		var system = properties.getClients().get(form.clientId());
+		var system = properties.systemForClient(form.clientId());
 		
 		if(system == null) {
 			throw new BadCredentialsException("Invalid login credentials.");
@@ -45,7 +45,7 @@ public class AuthenticationService {
 		boolean matches = encoder.matches(form.password(), profile.map(Profile::getPassword).orElse(dummyHash));
 		
 		if(!matches || profile.isEmpty() || profile.get().getStatus() != Profile.Status.Active
-				|| !ProfileAccess.allows(system, profile.get())) {
+				|| !ProfileAccess.allows(system, profile.get(), properties)) {
 			throw new BadCredentialsException("Invalid login credentials.");
 		}
 		

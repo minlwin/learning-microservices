@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,19 +16,20 @@ import org.springframework.security.authentication.BadCredentialsException;
 import com.jdc.auth.model.entity.*;
 import com.jdc.auth.model.repo.LoginTicketRepo;
 import com.jdc.auth.props.AuthenticationProps;
+import com.jdc.auth.AuthTestProperties;
 
 class LoginTicketServiceTest {
 	private final LoginTicketRepo repo = mock(LoginTicketRepo.class);
 	private LoginTicketService service;
 	private Profile profile;
 	@BeforeEach void setup() {
-		var settings = new AuthenticationProps();
-		settings.setClients(Map.of("consumer-demo", Profile.System.Consumer));
+		var settings = AuthTestProperties.create();
+		settings.setClients(Map.of("consumer-demo", client("Consumer")));
 		service = new LoginTicketService(repo, settings);
 		profile = new Profile();
 		profile.setId(UUID.randomUUID());
-		profile.setSystem(Profile.System.Consumer);
-		profile.setRole(Profile.Role.Consumer);
+		profile.setSystem("Consumer");
+		profile.setRole("Consumer");
 		profile.setStatus(Profile.Status.Active);
 	}
 	@Test void storesHashAndConsumesOnlyOnce() {
@@ -66,11 +70,11 @@ class LoginTicketServiceTest {
 	}
 
 	@Test void acceptsAdministratorTicketOnlyForItsManagementClient() {
-		var settings = new AuthenticationProps();
-		settings.setClients(Map.of("management-demo", Profile.System.Management, "consumer-demo", Profile.System.Consumer));
+		var settings = AuthTestProperties.create();
+		settings.setClients(Map.of("management-demo", client("Management"), "consumer-demo", client("Consumer")));
 		var adminTickets = new LoginTicketService(repo, settings);
-		profile.setSystem(Profile.System.Management);
-		profile.setRole(Profile.Role.Administrator);
+		profile.setSystem("Management");
+		profile.setRole("Administrator");
 		var result = adminTickets.issue(profile, "management-demo");
 		var captured = ArgumentCaptor.forClass(LoginTicket.class);
 		verify(repo).save(captured.capture());
@@ -80,4 +84,12 @@ class LoginTicketServiceTest {
 		assertEquals(profile.getId(), adminTickets.consume(result.loginTicket(), "management-demo").profileId());
 	}
 
+	private static AuthenticationProps.Client client(String system) {
+		var client = new AuthenticationProps.Client();
+		client.setSystem(system);
+		client.setScopes(Set.of(system.toLowerCase(Locale.ROOT) + ".api"));
+		client.setAudiences(List.of(system.toLowerCase(Locale.ROOT) + ".api"));
+		client.setSecret("Consumer".equals(system) ? "consumer-demo-secret" : "management-demo-secret");
+		return client;
+	}
 }

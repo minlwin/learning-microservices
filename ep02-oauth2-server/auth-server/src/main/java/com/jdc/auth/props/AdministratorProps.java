@@ -8,6 +8,8 @@ import lombok.Data;
 @ConfigurationProperties(prefix = "app.administrator")
 public class AdministratorProps {
 
+	private String system = "Management";
+	private String role = "Administrator";
 	private String username;
 	private String password;
 }

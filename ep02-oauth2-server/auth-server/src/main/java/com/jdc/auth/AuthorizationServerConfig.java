@@ -1,8 +1,11 @@
 package com.jdc.auth;
 
-import java.util.ArrayList;
+import org.springframework.jdbc.core.JdbcOperations;
+import org.springframework.security.jackson.SecurityJacksonModules;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import java.util.List;
-import java.util.Locale;
+import java.util.ArrayList;
 
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPrivateKey;
@@ -39,79 +42,106 @@ public class AuthorizationServerConfig {
 
 	@Bean
 	@Order(1)
-	SecurityFilterChain tokenEndpointSecurity(HttpSecurity http, LoginTicketService tickets,
-			OAuth2AuthorizationService authorizations, OAuth2TokenGenerator<?> generator, ExceptionHandlers handlers)
-			throws Exception {
+	SecurityFilterChain tokenEndpointSecurity(
+			HttpSecurity http,
+			LoginTicketService tickets,
+			OAuth2AuthorizationService authorizations,
+			OAuth2TokenGenerator<?> generator,
+			ExceptionHandlers handlers) {
+
 		// Restrict the entire chain, not just authorization rules: protocol filters
 		// can otherwise serve metadata, keys, and other endpoints before authorization.
 		var tokenEndpointMatcher = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.POST, "/oauth2/token");
+
 		var authorizationServer = new OAuth2AuthorizationServerConfigurer();
 		var ticketGrantProvider = new LoginTicketGrantProvider(tickets, authorizations, generator);
 
 		http.securityMatcher(tokenEndpointMatcher);
-		
+
 		http.with(authorizationServer, server -> {
-			
+
 			server.clientAuthentication(client -> client.errorResponseHandler(handlers::oauth2Failure));
-			
+
 			server.tokenEndpoint(endpoint -> {
 				endpoint.errorResponseHandler(handlers::oauth2Failure);
 				endpoint.accessTokenRequestConverter(new LoginTicketGrantConverter());
 				endpoint.authenticationProvider(ticketGrantProvider);
 			});
 		});
-		
+
 		http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
-		
+
 		http.csrf(AbstractHttpConfigurer::disable);
 		http.formLogin(AbstractHttpConfigurer::disable);
 		http.httpBasic(AbstractHttpConfigurer::disable);
 		http.logout(AbstractHttpConfigurer::disable);
 		http.requestCache(AbstractHttpConfigurer::disable);
 		http.authorizeHttpRequests(requests -> requests.anyRequest().authenticated());
-		
+
 		return http.build();
 	}
 
 	@Bean
-	RegisteredClientRepository registeredClients(AuthenticationProps properties, PasswordEncoder encoder) {
-		var clients = new ArrayList<RegisteredClient>();
+	RegisteredClientRepository registeredClients(AuthenticationProps properties, PasswordEncoder encoder, JdbcOperations jdbc) {
+		properties.validateClients();
+		var clients = new JdbcRegisteredClientRepository(jdbc);
 
 		for (var entry : properties.getClients().entrySet()) {
 			var clientId = entry.getKey();
-			var system = entry.getValue().name();
-			var secret = properties.getClientSecrets().get(clientId);
+			var definition = entry.getValue();
+			if (definition.getSystem() == null) {
+				throw new IllegalStateException("Missing profile system for " + clientId);
+			}
+			var system = definition.getSystem();
+			var secret = definition.getSecret();
 			if (secret == null || secret.isBlank()) {
 				throw new IllegalStateException("Missing client secret for " + clientId);
 			}
 
 			var clientSettings = ClientSettings.builder();
 			clientSettings.setting("app.system", system);
+			clientSettings.setting("app.audiences", new ArrayList<>(definition.getAudiences()));
 
 			var tokenSettings = TokenSettings.builder();
 			tokenSettings.accessTokenTimeToLive(properties.getAccessTokenTimeToLive());
 			tokenSettings.refreshTokenTimeToLive(properties.getRefreshTokenTimeToLive());
 			tokenSettings.reuseRefreshTokens(false);
 
-			var client = RegisteredClient.withId(clientId);
+			var existing = clients.findByClientId(clientId);
+			var client = RegisteredClient.withId(existing == null ? clientId : existing.getId());
 			client.clientId(clientId);
-			client.clientSecret(encoder.encode(secret));
+			var encodedSecret = existing == null ? null : existing.getClientSecret();
+			if (encodedSecret == null || !encoder.matches(secret, encodedSecret)) {
+				encodedSecret = encoder.encode(secret);
+			}
+			client.clientSecret(encodedSecret);
 			client.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
 			client.authorizationGrantType(LoginTicketGrantToken.GRANT_TYPE);
 			client.authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN);
-			client.scope(system.toLowerCase(Locale.ROOT) + ".api");
+			client.scopes(scopes -> scopes.addAll(definition.getScopes()));
 			client.clientSettings(clientSettings.build());
 			client.tokenSettings(tokenSettings.build());
 
-			clients.add(client.build());
+			clients.save(client.build());
 		}
-		return new InMemoryRegisteredClientRepository(clients);
+		return clients;
 	}
 
 	@Bean
-	OAuth2AuthorizationService authorizationService() {
-		return new InMemoryOAuth2AuthorizationService();
+	public OAuth2AuthorizationService authorizationService(JdbcOperations jdbc, RegisteredClientRepository clients) {
+		// Allow the Long token_version and immutable lists used in JWT claims.
+		var allowedTypes = BasicPolymorphicTypeValidator.builder();
+		allowedTypes.allowIfSubType(Long.class);
+		allowedTypes.allowIfSubType(List.of("role").getClass());
+		allowedTypes.allowIfSubType(List.of().getClass());
+		var mapperBuilder = JsonMapper.builder();
+		mapperBuilder.addModules(SecurityJacksonModules.getModules(getClass().getClassLoader(), allowedTypes));
+		var mapper = mapperBuilder.build();
+		var service = new JdbcOAuth2AuthorizationService(jdbc, clients);
+		service.setAuthorizationRowMapper(new JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationRowMapper(clients, mapper));
+		service.setAuthorizationParametersMapper(new JdbcOAuth2AuthorizationService.JsonMapperOAuth2AuthorizationParametersMapper(mapper));
+		return service;
 	}
 
 	@Bean
@@ -135,14 +165,14 @@ public class AuthorizationServerConfig {
 	}
 
 	@Bean
-	OAuth2TokenGenerator<?> tokenGenerator(JWKSource<SecurityContext> keys, ProfileRepo profiles) {
+	OAuth2TokenGenerator<?> tokenGenerator(JWKSource<SecurityContext> keys, ProfileRepo profiles, AuthenticationProps properties) {
 		var jwt = new JwtGenerator(new NimbusJwtEncoder(keys));
-		
+
 		jwt.setJwtCustomizer(context -> {
 			var profile = profiles.findById(UUID.fromString(context.getPrincipal().getName()))
 					.orElseThrow(() -> new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT));
 			String system = context.getRegisteredClient().getClientSettings().getSetting("app.system");
-			if (profile.getStatus() != Profile.Status.Active || !ProfileAccess.allows(Profile.System.valueOf(system), profile)) {
+			if (profile.getStatus() != Profile.Status.Active || !ProfileAccess.allows(system, profile, properties)) {
 				throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
 			}
 			long expectedVersion;
@@ -163,13 +193,14 @@ public class AuthorizationServerConfig {
 			}
 			var claims = context.getClaims();
 			claims.claim("token_version", expectedVersion);
-			claims.claim("system", profile.getSystem().name());
-			claims.claim("roles", List.of(profile.getRole().name()));
-			claims.audience(List.of(system.toLowerCase(Locale.ROOT) + ".api"));
+			claims.claim("system", profile.getSystem());
+			claims.claim("roles", List.of(profile.getRole()));
+			List<String> audiences = context.getRegisteredClient().getClientSettings().getSetting("app.audiences");
+			claims.audience(audiences);
 		});
-		
+
 		return new DelegatingOAuth2TokenGenerator(
-				jwt, 
+				jwt,
 				new OAuth2AccessTokenGenerator(),
 				new OAuth2RefreshTokenGenerator());
 	}

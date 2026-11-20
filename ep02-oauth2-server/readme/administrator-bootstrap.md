@@ -28,8 +28,4 @@ management APIs can therefore use `hasRole("Administrator")` where role-based
 authorization is required. Existing management API scope rules also admit this
 token. Refresh and logout retain the existing token-version checks.
 
-The fresh schema in `postgres/02-auth-schema.sql` includes a required ordinal
-role column: Consumer=0, Management=1, Administrator=2. System is Consumer=0 or
-Management=1. Consumer profiles must have the Consumer role; Management profiles
-can have Management or Administrator roles. Recreate the development database
-with the latest script before running. No migrations or Kafka events are added.
+The fresh schema in `postgres/02-auth-schema.sql` stores system and role as required strings. Allowed combinations come from `app.auth.systems.<system>.roles`. Administrator defaults are configured through `app.administrator.system` and `.role`; they default to Management and Administrator and must be a permitted combination. Recreate the development database with the latest script before running. No migrations or Kafka events are added.

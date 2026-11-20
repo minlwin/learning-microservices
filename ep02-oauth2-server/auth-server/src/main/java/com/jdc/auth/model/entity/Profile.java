@@ -25,10 +25,10 @@ public class Profile {
 	private Identity identity;
 	
 	@Column(nullable = false)
-	private System system;
+	private String system;
 	
 	@Column(nullable = false)
-	private Role role;
+	private String role;
 	
 	@Column(nullable = false)
 	private String password;
@@ -39,13 +39,7 @@ public class Profile {
 	@Column(nullable = false)
 	private long tokenVersion;
 
-	public enum System {
-		Consumer, Management
-	}
 	
-	public enum Role {
-		Consumer, Management, Administrator
-	}
 	
 	public enum Status {
 		Pending, Active, Locked, Closed

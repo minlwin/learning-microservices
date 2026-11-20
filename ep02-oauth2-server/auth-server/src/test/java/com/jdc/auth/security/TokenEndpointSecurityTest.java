@@ -21,9 +21,14 @@ import org.springframework.web.context.support.AnnotationConfigWebApplicationCon
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import org.springframework.web.bind.annotation.*;
 import com.jdc.auth.*;
+import org.hamcrest.Matchers;
+import org.springframework.jdbc.core.JdbcOperations;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
+import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import com.jdc.auth.model.entity.Profile;
 import com.jdc.auth.model.repo.ProfileRepo;
 import com.jdc.auth.props.AuthenticationProps;
+import com.jdc.auth.AuthTestProperties;
 import com.jdc.auth.service.LoginTicketService;
 import com.jdc.auth.service.LogoutService;
 import com.jdc.auth.service.TokenValidationService;
@@ -38,6 +43,11 @@ class TokenEndpointSecurityTest {
 	@EnableWebMvc
 	static class Config {
 		@Bean
+		JdbcOperations jdbc() {
+			return JdbcTestSupport.createDatabase();
+		}
+
+		@Bean
 		ProfileRepo profiles() {
 			return mock(ProfileRepo.class);
 		}
@@ -49,13 +59,19 @@ class TokenEndpointSecurityTest {
 
 		@Bean
 		AuthenticationProps properties() {
-			var properties = new AuthenticationProps();
+			var properties = AuthTestProperties.create();
+			var systems = new HashMap<>(properties.getSystems());
+			systems.put("Merchant", AuthTestProperties.system("MerchantOperator"));
+			properties.setSystems(systems);
+			var merchant = client("Merchant");
+			merchant.setScopes(Set.of("orders.read", "payments.write"));
+			merchant.setAudiences(List.of("orders.api", "payments.api"));
 			properties.setClients(
-					Map.of("consumer-demo", Profile.System.Consumer, "management-demo", Profile.System.Management));
-			properties.setResourceSecrets(Map.of("consumer-service", "consumer-resource-secret", "management-service", "management-resource-secret"));
-			properties.setResourceAudiences(Map.of("consumer-service", List.of("consumer.api", "management.api"), "management-service", List.of("management.api")));
-			properties.setClientSecrets(
-					Map.of("consumer-demo", "consumer-demo-secret", "management-demo", "management-demo-secret"));
+					Map.of("consumer-demo", client("Consumer"), "management-demo", client("Management"), "merchant-demo", merchant));
+			properties.setResources(Map.of(
+					"consumer-service", AuthTestProperties.resource("consumer-resource-secret", "consumer.api", "management.api"),
+					"management-service", AuthTestProperties.resource("management-resource-secret", "management.api"),
+					"orders-service", AuthTestProperties.resource("orders-secret", "orders.api")));
 			return properties;
 		}
 
@@ -88,8 +104,8 @@ class TokenEndpointSecurityTest {
 		mvc = MockMvcBuilders.webAppContextSetup(context).addFilters(context.getBean(FilterChainProxy.class)).build();
 		profile = new Profile();
 		profile.setId(UUID.randomUUID());
-		profile.setSystem(Profile.System.Consumer);
-		profile.setRole(Profile.Role.Consumer);
+		profile.setSystem("Consumer");
+		profile.setRole("Consumer");
 		profile.setStatus(Profile.Status.Active);
 		when(context.getBean(ProfileRepo.class).findById(profile.getId())).thenReturn(Optional.of(profile));
 		tickets = context.getBean(LoginTicketService.class);
@@ -178,8 +194,8 @@ class TokenEndpointSecurityTest {
 		var second = exchange("consumer-demo", "consumer-demo-secret", "second");
 		var management = new Profile();
 		management.setId(UUID.randomUUID());
-		management.setSystem(Profile.System.Management);
-		management.setRole(Profile.Role.Management);
+		management.setSystem("Management");
+		management.setRole("Management");
 		management.setStatus(Profile.Status.Active);
 		when(profiles.findById(management.getId())).thenReturn(Optional.of(management));
 		when(tickets.consume("management", "management-demo")).thenReturn(new LoginTicketService.AuthenticatedLogin(management.getId(), 0));
@@ -224,8 +240,8 @@ class TokenEndpointSecurityTest {
 	}
 
 	@Test void administratorReceivesManagementAccessAndAdministratorRoleIncludingOnRefresh() throws Exception {
-		profile.setSystem(Profile.System.Management);
-		profile.setRole(Profile.Role.Administrator);
+		profile.setSystem("Management");
+		profile.setRole("Administrator");
 		when(tickets.consume("administrator", "management-demo")).thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0));
 		var token = exchange("management-demo", "management-demo-secret", "administrator");
 		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
@@ -237,6 +253,41 @@ class TokenEndpointSecurityTest {
 		mvc.perform(post("/oauth2/token").header("Authorization", basic("management-demo", "management-demo-secret"))
 				.param("grant_type", "refresh_token").param("refresh_token", token.get("refresh_token")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.scope").value("management.api"));
+	}
+
+	@Test
+	void readsIssuedTokensThroughNewRepositoryAndServiceInstances() throws Exception {
+		var tokens = exchange("consumer-demo", "consumer-demo-secret", "ticket");
+		var jdbc = context.getBean(JdbcOperations.class);
+		var clients = new JdbcRegisteredClientRepository(jdbc);
+		var restored = new AuthorizationServerConfig().authorizationService(jdbc, clients);
+		var authorization = restored.findByToken(tokens.get("access_token"), OAuth2TokenType.ACCESS_TOKEN);
+		assertNotNull(authorization);
+		assertEquals(profile.getId().toString(), authorization.getPrincipalName());
+		assertEquals(0L, ((Number) authorization.getAccessToken().getClaims().get("token_version")).longValue());
+		assertNotNull(restored.findByToken(tokens.get("refresh_token"), OAuth2TokenType.REFRESH_TOKEN));
+	}
+
+	@Test
+	void issuesRefreshesAndIntrospectsTokensForConfiguredSystemAndCustomRole() throws Exception {
+		profile.setSystem(new String("Merchant"));
+		profile.setRole("MerchantOperator");
+		when(tickets.consume("merchant-ticket", "merchant-demo"))
+				.thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0));
+		var tokens = exchange("merchant-demo", "management-demo-secret", "merchant-ticket");
+		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
+				.header("Authorization", basic("orders-service", "orders-secret")).param("token", tokens.get("access_token")))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.active").value(true))
+				.andExpect(jsonPath("$.system").value("Merchant"))
+				.andExpect(jsonPath("$.roles[0]").value("MerchantOperator"))
+				.andExpect(jsonPath("$.aud", Matchers.containsInAnyOrder("orders.api", "payments.api")));
+		mvc.perform(post("/oauth2/token").header("Authorization", basic("merchant-demo", "management-demo-secret"))
+				.param("grant_type", "refresh_token").param("refresh_token", tokens.get("refresh_token")))
+				.andExpect(status().isOk());
+		profile.setRole("UnconfiguredRole");
+		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
+				.header("Authorization", basic("orders-service", "orders-secret")).param("token", tokens.get("access_token")))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
 	}
 
 	private Map<String, String> exchange(String client, String secret, String ticket) throws Exception {
@@ -255,5 +306,13 @@ class TokenEndpointSecurityTest {
 
 	private String basic(String id, String secret) {
 		return "Basic " + Base64.getEncoder().encodeToString((id + ":" + secret).getBytes(StandardCharsets.UTF_8));
+	}
+	private static AuthenticationProps.Client client(String system) {
+		var client = new AuthenticationProps.Client();
+		client.setSystem(system);
+		client.setScopes(Set.of(system.toLowerCase(Locale.ROOT) + ".api"));
+		client.setAudiences(List.of(system.toLowerCase(Locale.ROOT) + ".api"));
+		client.setSecret("Consumer".equals(system) ? "consumer-demo-secret" : "management-demo-secret");
+		return client;
 	}
 }

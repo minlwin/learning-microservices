@@ -10,6 +10,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import com.jdc.auth.model.entity.*;
 import com.jdc.auth.model.repo.*;
 import com.jdc.auth.props.AdministratorProps;
+import com.jdc.auth.AuthTestProperties;
 
 class AdministratorInitializerTest {
 	private final ProfileRepo profiles = mock(ProfileRepo.class);
@@ -20,7 +21,7 @@ class AdministratorInitializerTest {
 	@BeforeEach void setup() {
 		properties.setUsername("admin@example.com");
 		properties.setPassword("admin-password");
-		initializer = new AdministratorInitializer(profiles, identities, properties, encoder);
+		initializer = new AdministratorInitializer(profiles, identities, properties, AuthTestProperties.create(), encoder);
 		when(identities.save(any(Identity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 	}
 	@Test void createsActiveAdministratorWithHashedPasswordOnFirstStartup() {
@@ -29,8 +30,8 @@ class AdministratorInitializerTest {
 		verify(profiles).save(captured.capture());
 		var administrator = captured.getValue();
 		assertEquals("admin@example.com", administrator.getIdentity().getUsername());
-		assertEquals(Profile.System.Management, administrator.getSystem());
-		assertEquals(Profile.Role.Administrator, administrator.getRole());
+		assertEquals("Management", administrator.getSystem());
+		assertEquals("Administrator", administrator.getRole());
 		assertEquals(Profile.Status.Active, administrator.getStatus());
 		assertNotEquals(properties.getPassword(), administrator.getPassword());
 		assertTrue(encoder.matches(properties.getPassword(), administrator.getPassword()));
