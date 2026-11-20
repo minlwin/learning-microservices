@@ -1,0 +1,9 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+auth:
+  introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
+  issuer: ${AUTH_ISSUER:http://localhost:8080}
+  resource-id: consumer-service
+  resource-secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
+  audiences: consumer.api,management.api

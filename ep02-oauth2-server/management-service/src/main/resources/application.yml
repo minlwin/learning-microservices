@@ -1,0 +1,9 @@
+server:
+  port: ${SERVER_PORT:8082}
+
+auth:
+  introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
+  issuer: ${AUTH_ISSUER:http://localhost:8080}
+  resource-id: management-service
+  resource-secret: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
+  audiences: management.api

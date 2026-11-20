@@ -1,0 +1,83 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: auth-server
+
+  # Defaults for running the application on the host with Docker Compose services.
+  datasource:
+    url: ${AUTH_DB_URL:jdbc:postgresql://localhost:5432/wallet_demo?currentSchema=auth}
+    username: ${AUTH_DB_USERNAME:authuser}
+    password: ${AUTH_DB_PASSWORD:authpass}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Tables are managed explicitly by the SQL scripts in /postgres.
+      ddl-auto: validate
+    properties:
+      "[hibernate.default_schema]": auth
+
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      "[mail.smtp.auth]": ${MAIL_SMTP_AUTH:false}
+      "[mail.smtp.starttls.enable]": ${MAIL_SMTP_STARTTLS_ENABLE:false}
+      "[mail.smtp.connectiontimeout]": 5000
+      "[mail.smtp.timeout]": 5000
+      "[mail.smtp.writetimeout]": 5000
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP_ID:auth-server}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # Event payloads are strings (including JSON text) until event DTOs are defined.
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        "[enable.idempotence]": true
+
+app:
+  auth:
+    resource-secrets:
+      consumer-service: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
+      management-service: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
+    resource-audiences:
+      consumer-service: [consumer.api, management.api]
+      management-service: [management.api]
+    issuer: ${AUTH_ISSUER:http://localhost:8080}
+    client-secrets:
+      consumer-demo: ${CONSUMER_CLIENT_SECRET:consumer-demo-secret}
+      management-demo: ${MANAGEMENT_CLIENT_SECRET:management-demo-secret}
+    ticket-lifetime-seconds: 60
+    access-token-time-to-live: ${ACCESS_TOKEN_TIME_TO_LIVE:10m}
+    refresh-token-time-to-live: ${REFRESH_TOKEN_TIME_TO_LIVE:8h}
+    clients:
+      consumer-demo: Consumer
+      management-demo: Management
+  mail:
+    from: ${MAIL_FROM:no-reply@wallet-demo.local}
+  otp:
+    expiration:
+      registration: 3
+      activation: 5
+    resend:
+      interval-seconds: 60
+    cooldown:
+      missing-count: 3
+      waiting-duration: 30
+  administrator:
+    username: ${ADMINISTRATOR_USERNAME:admin@example.com}
+    password: ${ADMINISTRATOR_PASSWORD:password}
