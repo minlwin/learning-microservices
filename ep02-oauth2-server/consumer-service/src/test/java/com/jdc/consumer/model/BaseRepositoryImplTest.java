@@ -1,5 +1,7 @@
 package com.jdc.consumer.model;
 
+import com.jdc.consumer.model.query.ConsumerAccountQuery;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -87,7 +89,7 @@ class BaseRepositoryImplTest {
 
 	@Test
 	void searchesAccountsWithMatchingProjectionAndCountFilters() {
-		var service = new ConsumerAccountService(repository, null, null);
+		var service = new ConsumerAccountService(repository, null, null, new ConsumerAccountQuery());
 		var date = LocalDate.of(2026, 11, 21);
 		var form = new ConsumerAccountSearch(Account.Status.Applied, Account.RegistrationType.Self, date, date, "a");
 		var result = service.search(form, 0, 1);

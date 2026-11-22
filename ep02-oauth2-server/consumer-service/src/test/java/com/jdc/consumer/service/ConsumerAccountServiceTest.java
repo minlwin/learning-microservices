@@ -1,5 +1,7 @@
 package com.jdc.consumer.service;
 
+import com.jdc.consumer.model.query.ConsumerAccountQuery;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -26,7 +28,7 @@ class ConsumerAccountServiceTest {
 	private final AccountRepo accounts = mock(AccountRepo.class);
 	private final AccountAccessRepo accesses = mock(AccountAccessRepo.class);
 	private final AccountLockStatusRepo locks = mock(AccountLockStatusRepo.class);
-	private final ConsumerAccountService service = new ConsumerAccountService(accounts, accesses, locks);
+	private final ConsumerAccountService service = new ConsumerAccountService(accounts, accesses, locks, new ConsumerAccountQuery());
 	private final SelfRegistrationForm form = new SelfRegistrationForm("Alice", "alice@example.com", "1234", LocalDate.of(1990, 1, 1), "Address");
 
 	@BeforeEach

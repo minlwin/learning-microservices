@@ -34,9 +34,14 @@ spring:
 app:
   auth:
     introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
+    email-check-uri: ${AUTH_EMAIL_CHECK_URI:http://localhost:8080/api/internal/profiles/email/check}
     issuer: ${AUTH_ISSUER:http://localhost:8080}
     resource-id: ${MANAGEMENT_RESOURCE_ID:management-service}
     resource-secret: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
     audiences: ${AUTH_AUDIENCES:management.api}
     connect-timeout: ${AUTH_CONNECT_TIMEOUT:3s}
     read-timeout: ${AUTH_READ_TIMEOUT:3s}
+  client:
+    systems:
+      - Consumer
+      - Management

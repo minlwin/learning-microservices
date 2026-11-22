@@ -1,5 +1,9 @@
 package com.jdc.consumer.service;
 
+import com.jdc.consumer.model.query.LockHistoryQuery;
+
+import com.jdc.consumer.model.query.AccessHistoryQuery;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.Instant;
@@ -53,8 +57,8 @@ class HistoryServicesTest {
 		em = factory.getObject().createEntityManager();
 		var repos = new JpaRepositoryFactory(em);
 		repos.setRepositoryBaseClass(BaseRepositoryImpl.class);
-		access = new AccessHistoryService(repos.getRepository(AccessHistoryRepo.class));
-		locks = new LockStatusService(repos.getRepository(PinLockHistoryRepo.class), repos.getRepository(AccountLockStatusRepo.class));
+		access = new AccessHistoryService(repos.getRepository(AccessHistoryRepo.class), new AccessHistoryQuery());
+		locks = new LockStatusService(repos.getRepository(PinLockHistoryRepo.class), repos.getRepository(AccountLockStatusRepo.class), new LockHistoryQuery());
 		em.getTransaction().begin();
 		alice = account("Alice", AccountLockStatus.Status.Locked);
 		var bob = account("Bob", AccountLockStatus.Status.Active);

@@ -18,6 +18,8 @@ public class AuthenticationProps {
 	@NotBlank
 	private String introspectionUri = "http://localhost:8080/api/internal/tokens/introspect";
 	@NotBlank
+	private String emailCheckUri = "http://localhost:8080/api/internal/profiles/email/check";
+	@NotBlank
 	private String issuer = "http://localhost:8080";
 	@NotBlank
 	private String resourceId;

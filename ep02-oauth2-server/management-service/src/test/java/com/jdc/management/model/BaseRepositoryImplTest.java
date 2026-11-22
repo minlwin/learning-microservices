@@ -20,6 +20,11 @@ import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 
 import com.jdc.management.model.entity.Account;
+import com.jdc.management.model.repo.AccountRepo;
+import com.jdc.management.api.input.AccountSearch;
+import com.jdc.management.service.AccountManagementService;
+import com.jdc.management.model.query.AccountQuery;
+import java.time.LocalDate;
 import com.jdc.management.model.entity.Account_;
 import java.util.UUID;
 
@@ -34,7 +39,7 @@ class BaseRepositoryImplTest {
 	private LocalValidatorFactoryBean validator;
 	private SearchRepository repository;
 
-	public interface SearchRepository extends BaseRepository<Account, UUID> {
+	public interface SearchRepository extends AccountRepo {
 	}
 
 	@BeforeAll
@@ -75,6 +80,19 @@ class BaseRepositoryImplTest {
 			factory.destroy();
 		}
 	}
+
+    @Test
+    void searchesManagementAccountsWithMatchingCountAndEscapedPrefix() {
+        var service = new AccountManagementService(repository, null, new AccountQuery());
+        var form = new AccountSearch(null, LocalDate.of(2026, 11, 21),
+                LocalDate.of(2026, 11, 21), "al");
+        var page = service.search(form, 0, 1);
+        assertEquals(2, page.getTotalElements());
+        assertEquals(1, page.getContent().size());
+        assertTrue(page.getContent().getFirst().name().startsWith("Al"));
+        assertEquals(0, service.search(new AccountSearch(null, null, null, "%"), 0, 10).getTotalElements());
+        assertEquals(0, service.search(new AccountSearch(null, LocalDate.of(2026, 11, 22), null, null), 0, 10).getTotalElements());
+    }
 
 	@Test
 	void preservesInstantTimestampsAfterReloading() {

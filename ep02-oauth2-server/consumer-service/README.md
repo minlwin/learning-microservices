@@ -2,6 +2,239 @@
 
 Manages Consumer account registration, approval, profiles, access history, and PIN lock state. Default base URL: `http://localhost:8081`.
 
+## Contents
+
+- [Run locally](#run-locally)
+- [Configuration](#configuration)
+- [Database information](#database-information)
+- [Request conventions](#request-conventions)
+- [Management Endpoints](#management-endpoints)
+- [Consumer Mobile Endpoints](#consumer-mobile-endpoints)
+- [Error responses](#error-responses)
+- [Implementation notes](#implementation-notes)
+- [Tests](#tests)
+- [Current boundaries](#current-boundaries)
+
+## Run locally
+
+Requires Java 25, Maven, and Docker Compose. From the project root:
+
+```bash
+export POSTGRES_PASSWORD=postgres
+docker compose up -d
+mvn -pl consumer-service spring-boot:run
+```
+
+Default base URL: `http://localhost:8081`. Auth-server must be running for authenticated API requests. See [auth-server](../auth-server/README.md) for obtaining tokens. Set `SERVER_PORT` separately for each service process.
+
+PostgreSQL initializes `postgres/01-init.sql` and `postgres/03-consumer-schema.sql` only when its database volume is empty. Editing SQL does not modify an existing database. Hibernate uses `ddl-auto: validate`; no migration or automatic table creation/update is enabled. During this planning phase, update the initialization SQL directly. If you intentionally recreate the development database, `docker compose down -v` removes all Compose volumes, including database and Kafka data.
+
+Build and run an executable JAR:
+
+```bash
+mvn -pl consumer-service clean package
+java -jar consumer-service/target/consumer-service-0.0.1-SNAPSHOT.jar
+```
+
+Applications run on the host by default; infrastructure runs in Docker. Container deployments need connection-address overrides. [Consumer service](../consumer-service/README.md) uses port 8081, [Management service](../management-service/README.md) uses 8082, and auth-server uses 8080.
+
+## Configuration
+
+Defaults are in [`application.yml`](src/main/resources/application.yml).
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `SERVER_PORT` | 8081 | HTTP port. |
+| `CONSUMER_DB_URL` | `jdbc:postgresql://localhost:5432/wallet_demo?currentSchema=consumer` | JDBC URL. |
+| `CONSUMER_DB_USERNAME` | `csmuser` | Service database role. |
+| `CONSUMER_DB_PASSWORD` | `csmpass` | Development database password. |
+| `AUTH_INTROSPECTION_URI` | `http://localhost:8080/api/internal/tokens/introspect` | Live token-validation endpoint. |
+| `AUTH_ISSUER` | `http://localhost:8080` | Expected issuer. |
+| `CONSUMER_RESOURCE_ID` | `consumer-service` | Resource ID registered in auth-server. |
+| `CONSUMER_RESOURCE_SECRET` | `consumer-resource-secret` | Resource credential; must match auth-server. |
+| `AUTH_AUDIENCES` | `consumer.api,management.api` | Accepted audiences; comma-separated list. |
+| `AUTH_CONNECT_TIMEOUT` / `AUTH_READ_TIMEOUT` | `3s` / `3s` | Positive HTTP timeouts. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker. |
+| `KAFKA_CONSUMER_GROUP_ID` | `consumer-service` | Kafka consumer group. |
+
+Custom security settings are bound to validated `AuthenticationProps` under `app.auth`:
+
+```yaml
+app:
+  auth:
+    introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
+    issuer: ${AUTH_ISSUER:http://localhost:8080}
+    resource-id: consumer-service
+    resource-secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
+    audiences: [consumer.api, management.api]
+    connect-timeout: ${AUTH_CONNECT_TIMEOUT:3s}
+    read-timeout: ${AUTH_READ_TIMEOUT:3s}
+```
+
+Override the audience list with `AUTH_AUDIENCES` (comma-separated). Empty credentials/audiences and non-positive HTTP timeouts fail configuration validation. Changes require a restart.
+
+| Configuration | Owner |
+| --- | --- |
+| Security filter chain and introspection HTTP client | `ResourceSecurityConfig`, using `AuthenticationProps` |
+| Custom repository base class and method validation | `RepositoryConfig` and `ValidatedRepositoryFactoryBean` |
+| DataSource, EntityManagerFactory, transaction manager | Spring Boot auto-configuration from `spring.datasource` / `spring.jpa` |
+| KafkaTemplate, producer/consumer factories, listener container factory | Spring Boot auto-configuration from `spring.kafka` |
+
+The PostgreSQL defaults use `wallet_demo`, schema `consumer`, and role `csmuser` with development password `csmpass`. Override with `CONSUMER_DB_URL`, `CONSUMER_DB_USERNAME`, and `CONSUMER_DB_PASSWORD`. Hibernate uses `ddl-auto: validate` and `open-in-view: false`; initialize tables using the scripts under `postgres` before starting the service. No migrations or automatic table creation are enabled.
+
+Kafka defaults to `localhost:9092`, group `consumer-service`, String keys/values (including JSON text), record acknowledgment, and idempotent producer settings. Override using `KAFKA_BOOTSTRAP_SERVERS` and `KAFKA_CONSUMER_GROUP_ID`. No event listeners, publishers, topics, or business workflows are implemented by these settings. No extra datasource/Kafka bean configuration is needed unless customized behavior is introduced.
+
+Host defaults assume services run on the host and infrastructure runs in Docker Compose. For container deployments, override localhost connection addresses appropriately.
+
+`POSTGRES_PASSWORD` configures the container superuser, not the service role password in `01-init.sql`. Keep SQL credentials and application settings consistent. Development credentials are examples; replace them for deployment. This service does not send email directly; auth-server owns SMTP and OTP delivery.
+
+## Database information
+
+### Connection and ownership
+
+| Setting | Local development value | Definition |
+| --- | --- | --- |
+| Engine | PostgreSQL 17 | Docker Compose database. |
+| Host and port | `localhost:5432` | Host application connection. |
+| Database | `wallet_demo` | Shared development database with service-specific schemas. |
+| Schema | `consumer` | Owned exclusively by this service. |
+| Database role | `csmuser` | Role owns the schema and tables. |
+| Password | `csmpass` | Development password from 01-init.sql. |
+| JDBC URL | `jdbc:postgresql://localhost:5432/wallet_demo?currentSchema=consumer` | Selects the default schema. |
+| Hibernate DDL mode | `validate` | Checks mappings without changing tables. |
+
+The role search path and JDBC currentSchema select `consumer`; Hibernate also uses `hibernate.default_schema=consumer`. Cross-service access uses APIs and future events, rather than direct reads of other services’ tables. Subsystem account UUIDs are independent of auth-profile UUIDs.
+
+### Tables
+
+| Table | Primary key | Purpose |
+| --- | --- | --- |
+| `account` | `id` — UUID | Consumer information, registration origin, approval state and timestamps. |
+| `account_access` | `account_id` — UUID | Current Login/Logout status and change instant; shared account ID. |
+| `access_history` | `account_id, revision` | Login/logout events with a per-account revision. |
+| `account_lock_status` | `account_id` — UUID | Current Active/Locked state and change instant; shared account ID. |
+| `pin_lock_history` | `id` — UUID | Historical Temporary/Permenant locks and lock instant. |
+
+### Table definitions
+
+Column names and PostgreSQL types below follow the initialization SQL. **Nullable** describes database nullability. **Default** is the SQL default, not a Java initializer or service-assigned value; `—` means no explicit SQL default. PK = primary key, FK = foreign key. Primary-key columns are implicitly NOT NULL.
+
+#### `consumer.account`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | No | — | PK | Record UUID generated by Hibernate; no database UUID default. |
+| `email` | `VARCHAR(255)` | No | — | UNIQUE | Email associated with this record. |
+| `name` | `VARCHAR(255)` | Yes | — | — | Consumer name; nullable in the current schema. |
+| `phone` | `VARCHAR(255)` | No | — | — | Account phone number. |
+| `address` | `VARCHAR(255)` | No | — | — | Consumer address. |
+| `date_of_birth` | `DATE` | No | — | — | Date of birth; date-only value without a time zone. |
+| `registration_type` | `SMALLINT` | No | — | CHECK (registration_type BETWEEN 0 AND 1) | Registration origin: 0 Self, 1 Management. |
+| `status` | `SMALLINT` | No | — | CHECK (status BETWEEN 0 AND 1) | Account state: 0 Applied, 1 Approved. |
+| `registered_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Registration instant. |
+| `approved_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Approval instant; null until approved. |
+
+Table constraints and indexes:
+
+| Name | Definition |
+| --- | --- |
+| `ck_account_registration_type` | `CHECK (registration_type BETWEEN 0 AND 1)` |
+| `ck_account_status` | `CHECK (status BETWEEN 0 AND 1)` |
+
+#### `consumer.account_access`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `account_id` | `UUID` | No | — | PK; FK → consumer.account.id | Consumer account UUID referenced by this record. |
+| `status` | `SMALLINT` | No | — | CHECK (status BETWEEN 0 AND 1) | Current access state: 0 Login, 1 Logout. |
+| `status_change_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Instant of this state change or history event. |
+
+Table constraints and indexes:
+
+| Name | Definition |
+| --- | --- |
+| `ck_account_access_status` | `CHECK (status BETWEEN 0 AND 1)` |
+
+#### `consumer.access_history`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `account_id` | `UUID` | No | — | PK (composite); FK → consumer.account.id | Consumer account UUID referenced by this record. |
+| `revision` | `INTEGER` | No | — | PK (composite) | Revision within this account’s access history; part of the composite key. |
+| `status` | `SMALLINT` | No | — | CHECK (status BETWEEN 0 AND 1) | Recorded access event: 0 Login, 1 Logout. |
+| `status_change_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Instant of this state change or history event. |
+
+Table constraints and indexes:
+
+| Name | Definition |
+| --- | --- |
+| `Unnamed table constraint` | `PRIMARY KEY (account_id, revision)` |
+| `ck_access_history_status` | `CHECK (status BETWEEN 0 AND 1)` |
+
+#### `consumer.account_lock_status`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `account_id` | `UUID` | No | — | PK; FK → consumer.account.id | Consumer account UUID referenced by this record. |
+| `status` | `SMALLINT` | No | — | CHECK (status BETWEEN 0 AND 1) | Current lock state: 0 Active, 1 Locked. |
+| `status_change_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Instant of this state change or history event. |
+
+Table constraints and indexes:
+
+| Name | Definition |
+| --- | --- |
+| `ck_account_lock_status` | `CHECK (status BETWEEN 0 AND 1)` |
+
+#### `consumer.pin_lock_history`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | No | — | PK | Record UUID generated by Hibernate; no database UUID default. |
+| `account_id` | `UUID` | No | — | FK → consumer.account.id | Consumer account UUID referenced by this record. |
+| `lock_type` | `SMALLINT` | No | — | CHECK (lock_type BETWEEN 0 AND 1) | Historical lock type: 0 Temporary, 1 Permenant (current enum spelling). |
+| `lock_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Instant when the lock event occurred. |
+
+Table constraints and indexes:
+
+| Name | Definition |
+| --- | --- |
+| `ck_pin_lock_history_type` | `CHECK (lock_type BETWEEN 0 AND 1)` |
+| `ix_pin_lock_history_account_lock_at` | `INDEX (account_id, lock_at)` |
+
+### Relationships and constraints
+
+Unique account email prevents duplicate local registrations. Access and lock tables reference account.id; current-state records share its UUID through @MapsId. History rows have foreign keys to their account. PIN lock history has an index on account_id and lock_at. There is no database foreign key to auth-server profiles.
+
+### Stored identifiers and status values
+
+| Column | Stored values |
+| --- | --- |
+| `account.registration_type` | 0 = Self; 1 = Management. |
+| `account.status` | 0 = Applied; 1 = Approved. |
+| `account_access.status`, `access_history.status` | 0 = Login; 1 = Logout. |
+| `account_lock_status.status` | 0 = Active; 1 = Locked. |
+| `pin_lock_history.lock_type` | 0 = Temporary; 1 = Permenant (current enum spelling). |
+
+
+### Security data and timestamps
+
+Passwords and OAuth tokens belong to auth-server and are not stored in these tables. Names, emails, phones, and other personal information are stored as ordinary columns in this demo. Event timestamps use Instant / TIMESTAMP WITH TIME ZONE. Date of birth uses LocalDate / DATE. Status enums use ordinal SMALLINT values; keep enum order and SQL constraints aligned.
+
+### Initialization and inspection
+
+[`01-init.sql`](../postgres/01-init.sql) creates service roles and schemas; [`03-consumer-schema.sql`](../postgres/03-consumer-schema.sql) creates the tables. Initialization runs only for an empty PostgreSQL volume.
+
+```bash
+docker compose exec postgres psql -U csmuser -d wallet_demo
+```
+
+Inside psql:
+
+```text
+\dt consumer.*
+\d consumer.account
+```
+
 ## Request conventions
 
 All documented endpoints require a bearer access token. Management endpoints require `management.api`; Consumer Mobile endpoints require `consumer.api`. Tokens are validated through auth-server introspection on every request. Management operations currently enforce scopes rather than fine-grained roles.
@@ -128,7 +361,7 @@ Response: `200 OK`, `application/json`. The JSON below shows the item and princi
 
 Creates an Applied account with registration type Management. Initializes access status to Logout and lock status to Active in the same transaction. Rejects duplicate emails in Consumer service. Auth-server duplication precheck and event-driven invitation are deferred TODOs.
 
-##### Request DTO — `ConsumerRegistrationForm`
+##### Request Form — `ConsumerRegistrationForm`
 
 | Field | Type | Location | Required | Sample Value | Definition |
 | --- | --- | --- | --- | --- | --- |
@@ -420,7 +653,7 @@ For a consumer submitting personal information or viewing their own profile. The
 
 Creates an Applied account with Self registration type, Logout access status, and Active lock status. The email must exactly match the trusted authenticated username; another email returns 403. Duplicate registration returns 400. Requires an accepted consumer token; the Pending-profile onboarding-token flow remains unimplemented.
 
-##### Request DTO — `SelfRegistrationForm`
+##### Request Form — `SelfRegistrationForm`
 
 | Field | Type | Location | Required | Sample Value | Definition |
 | --- | --- | --- | --- | --- | --- |
@@ -532,6 +765,16 @@ Controller errors use `application/problem+json`. Request-field validation is ha
 | 404 | Consumer account or current lock-state record not found. |
 | 409 | Database uniqueness conflict, including concurrent duplicate creation. |
 
+### Response DTO — `ProblemDetail`
+
+| Field | Type | Sample Value | Definition |
+| --- | --- | --- | --- |
+| `type` | URI | `about:blank` | Problem type identifier. |
+| `title` | String | `Not Found` | HTTP error title. |
+| `status` | int | `404` | HTTP status code. |
+| `detail` | String | `No consumer account was found for the authenticated user.` | Failure explanation. |
+| `instance` | URI | `/api/mobile/profile` | Request path. |
+
 Example: profile lookup for an identity with no Consumer account:
 
 ```json
@@ -544,6 +787,22 @@ Example: profile lookup for an identity with no Consumer account:
 }
 ```
 
+## Implementation notes
+
+`ConsumerAccountQuery`, `AccessHistoryQuery`, and `LockHistoryQuery` build JPA metamodel predicates, projections, joins, sorting, and count queries. They create fresh roots and predicates for every query. Services retain search validation, repository execution, transactions, and business operations. Search forms and response records remain independent of JPA.
+
+## Tests
+
+From the project root:
+
+```bash
+mvn -pl consumer-service clean test
+```
+
+Tests use mocked HTTP/repositories and embedded H2 for Criteria queries and schema validation; they do not require Docker or exercise a live PostgreSQL/Kafka deployment.
+
+Run the complete project suite with `mvn clean test` from the project root. Schema tests validate the initialization SQL against entity mappings.
+
 ## Current boundaries
 
 Approval changes the local Consumer account only. Auth-profile activation and event publishing remain unimplemented; no Kafka events or remote account-status updates are sent.
@@ -553,44 +812,3 @@ Auth-server currently issues ordinary tokens only for Active profiles. Consequen
 The included resource-security rules enforce scopes. Fine-grained management role permissions remain a separate design decision. Access-history and lock-management operations are implemented by AccessHistoryService and LockStatusService.
 
 Local PostgreSQL datasource defaults are provided in application.yml; environment overrides are described below. Tables are defined in `postgres/03-consumer-schema.sql`; Hibernate should validate rather than create/update them.
-
-## Tests
-
-From the project root:
-
-```bash
-mvn -pl consumer-service test
-```
-
-Tests use mocked HTTP/repositories and embedded H2 for Criteria queries and schema validation; they do not require Docker or exercise a live PostgreSQL/Kafka deployment.
-
-## Configuration
-
-Custom security settings are bound to validated `AuthenticationProps` under `app.auth`:
-
-```yaml
-app:
-  auth:
-    introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
-    issuer: ${AUTH_ISSUER:http://localhost:8080}
-    resource-id: consumer-service
-    resource-secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
-    audiences: [consumer.api, management.api]
-    connect-timeout: ${AUTH_CONNECT_TIMEOUT:3s}
-    read-timeout: ${AUTH_READ_TIMEOUT:3s}
-```
-
-The previous top-level `auth.*` properties are replaced by `app.auth.*`. Override the audience list with `AUTH_AUDIENCES` (comma-separated). Empty credentials/audiences and non-positive HTTP timeouts fail configuration validation. Changes require a restart.
-
-| Configuration | Owner |
-| --- | --- |
-| Security filter chain and introspection HTTP client | `ResourceSecurityConfig`, using `AuthenticationProps` |
-| Custom repository base class and method validation | `RepositoryConfig` and `ValidatedRepositoryFactoryBean` |
-| DataSource, EntityManagerFactory, transaction manager | Spring Boot auto-configuration from `spring.datasource` / `spring.jpa` |
-| KafkaTemplate, producer/consumer factories, listener container factory | Spring Boot auto-configuration from `spring.kafka` |
-
-The PostgreSQL defaults use `wallet_demo`, schema `consumer`, and role `csmuser` with development password `csmpass`. Override with `CONSUMER_DB_URL`, `CONSUMER_DB_USERNAME`, and `CONSUMER_DB_PASSWORD`. Hibernate uses `ddl-auto: validate` and `open-in-view: false`; initialize tables using the scripts under `postgres` before starting the service. No migrations or automatic table creation are enabled.
-
-Kafka defaults to `localhost:9092`, group `consumer-service`, String keys/values (including JSON text), record acknowledgment, and idempotent producer settings. Override using `KAFKA_BOOTSTRAP_SERVERS` and `KAFKA_CONSUMER_GROUP_ID`. No event listeners, publishers, topics, or business workflows are implemented by these settings. No extra datasource/Kafka bean configuration is needed unless customized behavior is introduced.
-
-Host defaults assume services run on the host and infrastructure runs in Docker Compose. For container deployments, override localhost connection addresses appropriately.
