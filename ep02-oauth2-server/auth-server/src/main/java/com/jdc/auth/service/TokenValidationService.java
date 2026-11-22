@@ -54,6 +54,9 @@ public class TokenValidationService {
 		}
 		var attributes = new HashMap<String, Object>(claims);
 		attributes.put("sub", id.toString());
+		if (profile.getIdentity() != null) {
+			attributes.put("username", profile.getIdentity().getUsername());
+		}
 		attributes.put("scope", String.join(" ", authorization.getAuthorizedScopes()));
 		var scopeAuthorities = authorization.getAuthorizedScopes()
 				.stream().<GrantedAuthority>map(

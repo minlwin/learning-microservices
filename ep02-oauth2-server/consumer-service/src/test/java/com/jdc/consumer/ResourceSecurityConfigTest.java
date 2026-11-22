@@ -12,6 +12,8 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.*;
+import com.jdc.consumer.props.AuthenticationProps;
+import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -33,13 +35,13 @@ class ResourceSecurityConfigTest {
 	@EnableWebMvc
 	static class Config { @Bean TestApi api() { return new TestApi(); } }
 	@RestController
-	static class TestApi { @GetMapping("/api/self/check") String check() { return "ok"; } }
+	static class TestApi { @GetMapping({"/api/self/check", "/api/mobile/check"}) String check() { return "ok"; } }
 
 	@Test void checksRevocationOnEveryRequestAndFailsClosedWhenAuthServerIsDown() throws Exception {
 		try(var context = new AnnotationConfigWebApplicationContext()) {
 			context.setServletContext(new MockServletContext());
 			TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context,
-					"auth.introspection-uri=" + URI, "auth.resource-secret=secret");
+					"app.auth.introspection-uri=" + URI, "app.auth.resource-secret=secret", "app.auth.resource-id=consumer-service", "app.auth.audiences=consumer.api,management.api");
 			context.register(Config.class, ResourceSecurityConfig.class);
 			var transportHolder = new AtomicReference<MockRestServiceServer>();
 			context.addBeanFactoryPostProcessor(factory -> factory.addBeanPostProcessor(
@@ -56,10 +58,12 @@ class ResourceSecurityConfigTest {
 			var transport = transportHolder.get();
 			transport.expect(requestTo(URI)).andExpect(header("Authorization", Matchers.startsWith("Basic ")))
 					.andRespond(withSuccess(ACTIVE, MediaType.APPLICATION_JSON));
+			transport.expect(requestTo(URI)).andRespond(withSuccess(ACTIVE, MediaType.APPLICATION_JSON));
 			transport.expect(requestTo(URI)).andRespond(withSuccess("{\"active\":false}", MediaType.APPLICATION_JSON));
 			transport.expect(requestTo(URI)).andRespond(withException(new IOException("Auth server unavailable")));
 			var mvc = MockMvcBuilders.webAppContextSetup(context).addFilters(context.getBean(FilterChainProxy.class)).build();
 			mvc.perform(get("/api/self/check").header("Authorization", "Bearer token")).andExpect(status().isOk());
+			mvc.perform(get("/api/mobile/check").header("Authorization", "Bearer token")).andExpect(status().isOk());
 			mvc.perform(get("/api/self/check").header("Authorization", "Bearer token")).andExpect(status().isUnauthorized());
 			var introspector = context.getBean(OpaqueTokenIntrospector.class);
 			assertThrows(OAuth2IntrospectionException.class, () -> introspector.introspect("token"));
@@ -74,9 +78,9 @@ class ResourceSecurityConfigTest {
 		var http = builder.build();
 		transport.expect(requestTo(URI)).andRespond(withSuccess(ACTIVE, MediaType.APPLICATION_JSON));
 		transport.expect(requestTo(URI)).andRespond(withSuccess(ACTIVE, MediaType.APPLICATION_JSON));
-		var wrongIssuer = config.liveTokenIntrospector(URI, http, "https://wrong-issuer", "consumer.api");
+		var wrongIssuer = config.liveTokenIntrospector(properties("https://wrong-issuer", "consumer.api"), http);
 		assertThrows(BadOpaqueTokenException.class, () -> wrongIssuer.introspect("token"));
-		var wrongAudience = config.liveTokenIntrospector(URI, http, "http://localhost:8080", "other.api");
+		var wrongAudience = config.liveTokenIntrospector(properties("http://localhost:8080", "other.api"), http);
 		assertThrows(BadOpaqueTokenException.class, () -> wrongAudience.introspect("token"));
 		transport.verify();
 	}
@@ -86,10 +90,17 @@ class ResourceSecurityConfigTest {
 		var http = builder.build();
 		var json = ACTIVE.substring(0, ACTIVE.length() - 1) + ",\"roles\":[\"CustomOperator\"]}";
 		transport.expect(requestTo(URI)).andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
-		var introspector = new ResourceSecurityConfig().liveTokenIntrospector(URI, http, "http://localhost:8080", "consumer.api");
+		var introspector = new ResourceSecurityConfig().liveTokenIntrospector(properties("http://localhost:8080", "consumer.api"), http);
 		var principal = introspector.introspect("token");
 		assertTrue(principal.getAuthorities().stream().anyMatch(authority -> authority.getAuthority().equals("ROLE_CustomOperator")));
 		transport.verify();
 	}
 
+	private AuthenticationProps properties(String issuer, String audience) {
+		var properties = new AuthenticationProps();
+		properties.setIntrospectionUri(URI);
+		properties.setIssuer(issuer);
+		properties.setAudiences(List.of(audience));
+		return properties;
+	}
 }

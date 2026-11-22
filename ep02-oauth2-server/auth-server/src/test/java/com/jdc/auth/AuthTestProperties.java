@@ -17,6 +17,14 @@ public final class AuthTestProperties {
 	}
 
 	public static void configure(AuthenticationProps properties) {
+		var registration = new AuthenticationProps.ProfileDefaults();
+		registration.setSystem("Consumer");
+		registration.setRole("Consumer");
+		properties.setRegistration(registration);
+		var activation = new AuthenticationProps.ProfileDefaults();
+		activation.setSystem("Management");
+		activation.setRole("Management");
+		properties.setActivation(activation);
 		properties.setSystems(Map.of("Consumer", system("Consumer"), "Management", system("Management", "Administrator")));
 	}
 

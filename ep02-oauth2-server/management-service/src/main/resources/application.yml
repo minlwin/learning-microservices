@@ -1,9 +1,42 @@
 server:
   port: ${SERVER_PORT:8082}
 
-auth:
-  introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
-  issuer: ${AUTH_ISSUER:http://localhost:8080}
-  resource-id: management-service
-  resource-secret: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
-  audiences: management.api
+spring:
+  application:
+    name: management-service
+  datasource:
+    url: ${MANAGEMENT_DB_URL:jdbc:postgresql://localhost:5432/wallet_demo?currentSchema=management}
+    username: ${MANAGEMENT_DB_USERNAME:mnguser}
+    password: ${MANAGEMENT_DB_PASSWORD:mngpass}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      "[hibernate.default_schema]": management
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP_ID:management-service}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        "[enable.idempotence]": true
+
+app:
+  auth:
+    introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
+    issuer: ${AUTH_ISSUER:http://localhost:8080}
+    resource-id: ${MANAGEMENT_RESOURCE_ID:management-service}
+    resource-secret: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
+    audiences: ${AUTH_AUDIENCES:management.api}
+    connect-timeout: ${AUTH_CONNECT_TIMEOUT:3s}
+    read-timeout: ${AUTH_READ_TIMEOUT:3s}

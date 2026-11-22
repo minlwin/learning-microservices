@@ -1,9 +1,42 @@
 server:
   port: ${SERVER_PORT:8081}
 
-auth:
-  introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
-  issuer: ${AUTH_ISSUER:http://localhost:8080}
-  resource-id: consumer-service
-  resource-secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
-  audiences: consumer.api,management.api
+spring:
+  application:
+    name: consumer-service
+  datasource:
+    url: ${CONSUMER_DB_URL:jdbc:postgresql://localhost:5432/wallet_demo?currentSchema=consumer}
+    username: ${CONSUMER_DB_USERNAME:csmuser}
+    password: ${CONSUMER_DB_PASSWORD:csmpass}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      "[hibernate.default_schema]": consumer
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP_ID:consumer-service}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        "[enable.idempotence]": true
+
+app:
+  auth:
+    introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
+    issuer: ${AUTH_ISSUER:http://localhost:8080}
+    resource-id: ${CONSUMER_RESOURCE_ID:consumer-service}
+    resource-secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
+    audiences: ${AUTH_AUDIENCES:consumer.api,management.api}
+    connect-timeout: ${AUTH_CONNECT_TIMEOUT:3s}
+    read-timeout: ${AUTH_READ_TIMEOUT:3s}

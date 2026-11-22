@@ -1,7 +1,7 @@
 package com.jdc.auth.model.entity;
 
 import java.util.UUID;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.AttributeOverrides;
@@ -27,7 +27,7 @@ public class Activation {
 	@Column(nullable = false)
 	private String email;
 	
-	private LocalDateTime initializedAt;
+	private Instant initializedAt;
 
 	@Embedded
 	@AttributeOverrides({

@@ -38,7 +38,6 @@ public class Profile {
 	
 	@Column(nullable = false)
 	private long tokenVersion;
-
 	
 	
 	public enum Status {

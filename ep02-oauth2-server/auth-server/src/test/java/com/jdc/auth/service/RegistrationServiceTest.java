@@ -3,14 +3,16 @@ package com.jdc.auth.service;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.util.ReflectionTestUtils;
+import com.jdc.auth.AuthTestProperties;
+import com.jdc.auth.props.OtpCodeProps;
 
 import com.jdc.auth.api.input.InitializationForm;
 import com.jdc.auth.api.input.OtpForm;
@@ -32,18 +34,18 @@ class RegistrationServiceTest {
 
 	@BeforeEach
 	void setup() {
-		service = new RegistrationService(encoder, mock(EmailValidationService.class), mail,
+		service = new RegistrationService(AuthTestProperties.create(), new OtpCodeProps(), encoder, mock(EmailValidationService.class), mail,
 				registrations, mock(IdentityRepo.class), profiles);
-		ReflectionTestUtils.setField(service, "otpCooldownMissingCount", 3);
-		ReflectionTestUtils.setField(service, "otpCooldownWait", 30);
-		ReflectionTestUtils.setField(service, "resendIntervalSeconds", 60);
+
+
+
 		registration = new Registration();
 		registration.setId(UUID.randomUUID());
 		otp = new OtpRecord();
 		otp.setStatus(CheckStatus.Send);
 		otp.setOtpCode("encoded");
-		otp.setSendAt(LocalDateTime.now());
-		otp.setExpireAt(LocalDateTime.now().plusMinutes(3));
+		otp.setSendAt(Instant.now());
+		otp.setExpireAt(Instant.now().plus(Duration.ofMinutes(3)));
 		registration.setOtpRecord(otp);
 		when(registrations.findById(registration.getId())).thenReturn(Optional.of(registration));
 	}
@@ -57,7 +59,7 @@ class RegistrationServiceTest {
 
 	@Test
 	void rejectsExpiredCode() {
-		otp.setExpireAt(LocalDateTime.now().minusSeconds(1));
+		otp.setExpireAt(Instant.now().minusSeconds(1));
 		assertThrows(BusinessRuleViolationException.class,
 				() -> service.validateOtp(registration.getId(), new OtpForm("123456")));
 		verifyNoInteractions(encoder);
@@ -77,7 +79,7 @@ class RegistrationServiceTest {
 	@Test
 	void blocksVerificationDuringCooldown() {
 		otp.setFailCount(3);
-		otp.setCheckedAt(LocalDateTime.now());
+		otp.setCheckedAt(Instant.now());
 		assertThrows(BusinessRuleViolationException.class,
 				() -> service.validateOtp(registration.getId(), new OtpForm("123456")));
 		verifyNoInteractions(encoder);
@@ -92,7 +94,7 @@ class RegistrationServiceTest {
 
 	@Test
 	void preventsRepeatedInitialization() {
-		registration.setInitializedAt(LocalDateTime.now());
+		registration.setInitializedAt(Instant.now());
 		assertThrows(BusinessRuleViolationException.class,
 				() -> service.initialize(registration.getId(), new InitializationForm("password")));
 		verifyNoInteractions(profiles);

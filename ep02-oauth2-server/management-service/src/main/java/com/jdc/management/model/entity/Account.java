@@ -1,6 +1,6 @@
 package com.jdc.management.model.entity;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
@@ -31,9 +31,9 @@ public class Account {
 	private Status status;
 	
 	@Column(nullable = false)
-	private LocalDateTime registeredAt;
+	private Instant registeredAt;
 
-	private LocalDateTime activatedAt;
+	private Instant activatedAt;
 	
 	public enum Status {
 		Pending, Activated

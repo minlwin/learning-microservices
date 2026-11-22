@@ -8,8 +8,10 @@ import org.springframework.security.oauth2.server.authorization.authentication.O
 public class LoginTicketGrantToken extends OAuth2AuthorizationGrantAuthenticationToken {
 
 	private static final long serialVersionUID = 1L;
+
 	public static final AuthorizationGrantType GRANT_TYPE = new AuthorizationGrantType(
 			"urn:jdc:params:oauth:grant-type:login-ticket");
+
 	private final String ticket;
 	private long tokenVersion;
 
@@ -21,7 +23,13 @@ public class LoginTicketGrantToken extends OAuth2AuthorizationGrantAuthenticatio
 	public String getTicket() {
 		return ticket;
 	}
-	public long getTokenVersion() { return tokenVersion; }
-	public void setTokenVersion(long tokenVersion) { this.tokenVersion = tokenVersion; }
+
+	public long getTokenVersion() {
+		return tokenVersion;
+	}
+
+	public void setTokenVersion(long tokenVersion) {
+		this.tokenVersion = tokenVersion;
+	}
 
 }

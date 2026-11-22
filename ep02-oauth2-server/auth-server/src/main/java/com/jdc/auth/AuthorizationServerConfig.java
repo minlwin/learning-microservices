@@ -54,19 +54,16 @@ public class AuthorizationServerConfig {
 		var tokenEndpointMatcher = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.POST, "/oauth2/token");
 
-		var authorizationServer = new OAuth2AuthorizationServerConfigurer();
-		var ticketGrantProvider = new LoginTicketGrantProvider(tickets, authorizations, generator);
-
 		http.securityMatcher(tokenEndpointMatcher);
 
-		http.with(authorizationServer, server -> {
+		http.with(new OAuth2AuthorizationServerConfigurer(), server -> {
 
 			server.clientAuthentication(client -> client.errorResponseHandler(handlers::oauth2Failure));
 
 			server.tokenEndpoint(endpoint -> {
 				endpoint.errorResponseHandler(handlers::oauth2Failure);
 				endpoint.accessTokenRequestConverter(new LoginTicketGrantConverter());
-				endpoint.authenticationProvider(ticketGrantProvider);
+				endpoint.authenticationProvider(new LoginTicketGrantProvider(tickets, authorizations, generator));
 			});
 		});
 

@@ -15,6 +15,8 @@ public interface ProfileRepo extends JpaRepository<Profile, UUID>{
 
 	Optional<Profile> findByIdentityUsernameAndSystem(String username, String system);
 
+	boolean existsByIdentityUsernameAndSystem(String username, String system);
+
 	boolean existsByIdentityAndSystem(Identity identity, String system);
 
 	@Modifying(clearAutomatically = true, flushAutomatically = true)

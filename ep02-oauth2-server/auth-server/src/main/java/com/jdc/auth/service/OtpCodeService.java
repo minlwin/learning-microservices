@@ -4,7 +4,8 @@ import java.security.SecureRandom;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.jdc.auth.props.MailConfigProps;
+import com.jdc.auth.props.OtpCodeProps;
 import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -23,11 +24,10 @@ public class OtpCodeService {
 	private final int registrationExpiration;
 
 	public OtpCodeService(JavaMailSender mailSender,
-			@Value("${app.mail.from}") String from,
-			@Value("${app.otp.expiration.registration}") int registrationExpiration) {
+			MailConfigProps mailProperties, OtpCodeProps otpProperties) {
 		this.mailSender = mailSender;
-		this.from = from;
-		this.registrationExpiration = registrationExpiration;
+		this.from = mailProperties.getFrom();
+		this.registrationExpiration = otpProperties.getExpiration().getRegistration();
 	}
 
 	public String sendForRegistration(String email) {

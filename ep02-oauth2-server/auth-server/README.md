@@ -92,6 +92,8 @@ app:
 
 Restart the server after changing these settings. Token response examples below assume the default lifetimes.
 
+Custom auth-server settings are bound through `AuthenticationProps`, `AdministratorProps`, `OtpCodeProps`, and `MailConfigProps`. `PropertiesConfig` enables mail/OTP property binding; services use constructor injection instead of `@Value`. Standard datasource, SMTP, and Kafka settings remain under `spring.*` and use Spring Boot auto-configuration.
+
 Mail uses MIME messages with HTML content. Development credentials are examples; replace them for deployed environments. Client secrets belong in a trusted backend and must not be embedded in browser or mobile application code.
 
 ## Database information
@@ -163,7 +165,7 @@ Passwords, client secrets, and OTP codes are stored as BCrypt hashes. Login tick
 
 `profile.token_version` supports logout across devices for that profile. Tickets capture the version at issuance, and issued access-token metadata includes the version for live validation.
 
-Registration and activation timestamps use `TIMESTAMP WITHOUT TIME ZONE` and Java `LocalDateTime`. Login-ticket and OAuth timestamps use `TIMESTAMP WITH TIME ZONE` for absolute instants. OAuth token values and serialized authorization metadata use PostgreSQL `TEXT`, replacing the generic Spring SQL scripts' `BLOB` columns.
+Event timestamps across all services use Java `Instant` and PostgreSQL `TIMESTAMP WITH TIME ZONE` to represent absolute instants. OTP expiration and cooldown calculations use elapsed durations; retry timestamps in messages use ISO-8601 UTC (the `Z` suffix). Date-only fields, such as date of birth, remain `LocalDate` / `DATE`. OAuth token values and serialized authorization metadata use PostgreSQL `TEXT`, replacing the generic Spring SQL scripts' `BLOB` columns.
 
 ### Initialization and inspection
 
@@ -349,12 +351,13 @@ For a service using the same resource-security configuration as the included ser
 server:
   port: 8083
 
-auth:
-  introspection-uri: http://localhost:8080/api/internal/tokens/introspect
-  issuer: http://localhost:8080
-  resource-id: merchant-service
-  resource-secret: ${MERCHANT_RESOURCE_SECRET}
-  audiences: merchant.api
+app:
+  auth:
+    introspection-uri: http://localhost:8080/api/internal/tokens/introspect
+    issuer: http://localhost:8080
+    resource-id: merchant-service
+    resource-secret: ${MERCHANT_RESOURCE_SECRET}
+    audiences: [merchant.api]
 ```
 
 The included Consumer and Management services have their own endpoint/scope rules. A new service must implement its endpoints and define appropriate authorization rules, such as requiring `SCOPE_merchant.api`. The existing introspection adapters map any nonblank trusted role to `ROLE_<role>`, including `ROLE_MerchantOperator`, without a hardcoded role list.
@@ -648,9 +651,65 @@ A valid token returns `active: true` and token attributes. Invalid tokens or dis
 
 The included resource services validate tokens through this endpoint on every request, allowing logout and profile status changes to take effect without waiting for JWT expiration. Roles are mapped to authorities such as `ROLE_Administrator`.
 
+## Subsystem email duplication check
+
+`POST /api/internal/profiles/email/check` lets trusted subsystems check whether an email already has a profile in a particular system. Authenticate with the subsystem's existing resource credentials using HTTP Basic; OAuth client credentials and user bearer tokens do not grant access.
+
+```yaml
+app:
+  auth:
+    resources:
+      consumer-service:
+        secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
+        audiences: [consumer.api, management.api]
+        email-check-systems: [Consumer]
+      management-service:
+        secret: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
+        audiences: [management.api]
+        email-check-systems: [Consumer, Management]
+```
+
+Permissions default to an empty list: new subsystem registrations cannot check emails until explicitly granted access. Configured systems must exist in `app.auth.systems`. Restart the server after changing permissions.
+
+| Parameter Name | Sample Value | Definition |
+| --- | --- | --- |
+| HTTP Basic username | `consumer-service` | Subsystem ID from `app.auth.resources`. |
+| HTTP Basic password | `consumer-resource-secret` | Secret for that subsystem. |
+| `system` | `Consumer` | Required JSON string; case-sensitive system ID the caller is permitted to check. |
+| `email` | `consumer@example.com` | Required valid email, up to 255 characters; matched exactly against the identity username. |
+
+```bash
+curl -X POST http://localhost:8080/api/internal/profiles/email/check \
+  -u 'consumer-service:consumer-resource-secret' \
+  -H 'Content-Type: application/json' \
+  -d '{"system":"Consumer","email":"consumer@example.com"}'
+```
+
+Response: `200 OK`, `application/json`, with `Cache-Control: no-store`:
+
+```json
+{
+  "exists": true
+}
+```
+
+If no matching profile exists:
+
+```json
+{
+  "exists": false
+}
+```
+
+`exists: true` includes Pending, Active, Locked, and Closed profiles. An identity without a profile in the requested system, including an identity used only in another system, returns false. Pending registration/invitation records without profiles are not counted.
+
+Invalid email/system fields return 400 ProblemDetail; missing or incorrect subsystem credentials return 401; a system outside the caller's permission list returns 403. No profile IDs, status details, or other account information are exposed.
+
+This endpoint checks availability only; it does not reserve an email. Concurrent registration can change the result, so final initialization must still enforce the unique identity/system constraint. The Consumer service call and event-based invitation workflow remain TODOs; no event publishing or consumption is implemented by this endpoint.
+
 ## Security and error responses
 
-Registration, activation, and authentication endpoints allow unauthenticated requests. Logout requires a bearer access token. Internal introspection requires resource-server credentials. `/oauth2/token` requires OAuth client authentication using HTTP Basic.
+Registration, activation, and authentication endpoints allow unauthenticated requests. Logout requires a bearer access token. Internal introspection and email checks require resource-server credentials; email checks additionally enforce explicit system permissions. `/oauth2/token` requires OAuth client authentication using HTTP Basic.
 
 Other authorization-server endpoints are disabled, including the hosted login form, authorization redirect endpoint, standard introspection and revocation endpoints, discovery metadata, and public JWK endpoint. OpenID Connect ID tokens are not issued. Security is stateless and CSRF protection is disabled for these API flows.
 

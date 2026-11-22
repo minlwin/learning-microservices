@@ -3,30 +3,42 @@ package com.jdc.auth.props;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import lombok.Data;
+import org.springframework.validation.annotation.Validated;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 
 @Data
+@Validated
 @ConfigurationProperties(prefix = "app.otp")
 public class OtpCodeProps {
-	
-	private Expiration expiration;
-	private Cooldown cooldown;
-	private Resend resend;
 
-	
+	@Valid
+	private Expiration expiration = new Expiration();
+	@Valid
+	private Cooldown cooldown = new Cooldown();
+	@Valid
+	private Resend resend = new Resend();
+
+
 	@Data
 	public static class Expiration {
-		private int registration;
-		private int activation; 
+		@Min(1)
+		private int registration = 3;
+		@Min(1)
+		private int activation = 5;
 	}
-	
+
 	@Data
 	public static class Cooldown {
-		private int missingCount;
-		private int waitingDuration;
+		@Min(1)
+		private int missingCount = 3;
+		@Min(1)
+		private int waitingDuration = 30;
 	}
-	
+
 	@Data
 	public static class Resend {
-		private int intervalSeconds;
+		@Min(1)
+		private int intervalSeconds = 60;
 	}
 }

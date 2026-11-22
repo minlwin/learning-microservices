@@ -11,12 +11,12 @@ import jakarta.servlet.http.HttpServletRequest;
 public class LoginTicketGrantConverter implements AuthenticationConverter {
 	@Override
 	public Authentication convert(HttpServletRequest request) {
-		if(!LoginTicketGrantToken.GRANT_TYPE.getValue().equals(request.getParameter("grant_type"))) {
+		if (!LoginTicketGrantToken.GRANT_TYPE.getValue().equals(request.getParameter("grant_type"))) {
 			return null;
 		}
 		var grants = request.getParameterValues("grant_type");
 		var values = request.getParameterValues("login_ticket");
-		if(grants.length != 1 || values == null || values.length != 1 || values[0].isBlank()
+		if (grants.length != 1 || values == null || values.length != 1 || values[0].isBlank()
 				|| request.getParameter("scope") != null) {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_REQUEST);
 		}

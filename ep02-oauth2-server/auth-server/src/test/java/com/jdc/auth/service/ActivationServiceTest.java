@@ -5,14 +5,16 @@ import org.mockito.ArgumentCaptor;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.util.ReflectionTestUtils;
+import com.jdc.auth.AuthTestProperties;
+import com.jdc.auth.props.OtpCodeProps;
 
 import com.jdc.auth.api.input.InitializationForm;
 import com.jdc.auth.api.input.OtpForm;
@@ -37,17 +39,17 @@ class ActivationServiceTest {
 
 	@BeforeEach
 	void setup() {
-		service = new ActivationService(activations, identities, profiles, encoder, mail);
-		ReflectionTestUtils.setField(service, "maxFailures", 3);
-		ReflectionTestUtils.setField(service, "cooldownMinutes", 30);
-		ReflectionTestUtils.setField(service, "resendIntervalSeconds", 60);
+		service = new ActivationService(AuthTestProperties.create(), new OtpCodeProps(), activations, identities, profiles, encoder, mail);
+
+
+
 		activation = new Activation();
 		activation.setId(UUID.randomUUID());
 		otp = new OtpRecord();
 		otp.setStatus(CheckStatus.Send);
 		otp.setOtpCode("encoded");
-		otp.setSendAt(LocalDateTime.now());
-		otp.setExpireAt(LocalDateTime.now().plusMinutes(3));
+		otp.setSendAt(Instant.now());
+		otp.setExpireAt(Instant.now().plus(Duration.ofMinutes(3)));
 		activation.setOtpRecord(otp);
 		when(activations.findById(activation.getId())).thenReturn(Optional.of(activation));
 	}
@@ -61,7 +63,7 @@ class ActivationServiceTest {
 
 	@Test
 	void rejectsExpiredCode() {
-		otp.setExpireAt(LocalDateTime.now().minusSeconds(1));
+		otp.setExpireAt(Instant.now().minusSeconds(1));
 		assertThrows(BusinessRuleViolationException.class,
 				() -> service.validateOtp(activation.getId(), new OtpForm("123456")));
 		verifyNoInteractions(encoder);
@@ -81,7 +83,7 @@ class ActivationServiceTest {
 	@Test
 	void blocksVerificationDuringCooldown() {
 		otp.setFailCount(3);
-		otp.setCheckedAt(LocalDateTime.now());
+		otp.setCheckedAt(Instant.now());
 		assertThrows(BusinessRuleViolationException.class,
 				() -> service.validateOtp(activation.getId(), new OtpForm("123456")));
 		verifyNoInteractions(encoder);
@@ -96,7 +98,7 @@ class ActivationServiceTest {
 
 	@Test
 	void preventsRepeatedInitialization() {
-		activation.setInitializedAt(LocalDateTime.now());
+		activation.setInitializedAt(Instant.now());
 		assertThrows(BusinessRuleViolationException.class,
 				() -> service.initialize(activation.getId(), new InitializationForm("password")));
 		verifyNoInteractions(profiles);
@@ -105,7 +107,7 @@ class ActivationServiceTest {
 	void sendsFirstCodeAndStoresItsHash() {
 		activation.setEmail("manager@example.com");
 		activation.setOtpRecord(null);
-		ReflectionTestUtils.setField(service, "otpExpiration", 5);
+
 		when(mail.sendForActivation("manager@example.com", 5)).thenReturn("123456");
 		when(encoder.encode("123456")).thenReturn("hashed");
 		service.request(activation.getId());
@@ -113,7 +115,7 @@ class ActivationServiceTest {
 		assertEquals("hashed", sent.getOtpCode());
 		assertEquals(CheckStatus.Send, sent.getStatus());
 		assertEquals(1, sent.getSendCount());
-		assertEquals(sent.getSendAt().plusMinutes(5), sent.getExpireAt());
+		assertEquals(sent.getSendAt().plus(Duration.ofMinutes(5)), sent.getExpireAt());
 	}
 
 	@Test

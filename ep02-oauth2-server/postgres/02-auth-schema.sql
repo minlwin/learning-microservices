@@ -34,29 +34,30 @@ CREATE TABLE auth.profile (
 CREATE TABLE auth.registration (
     id UUID PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
-    registered_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL,
-    initialized_at TIMESTAMP(6) WITHOUT TIME ZONE,
+    registered_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    initialized_at TIMESTAMP(6) WITH TIME ZONE,
     otp_code VARCHAR(255) NOT NULL,
     status SMALLINT NOT NULL,
-    send_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL,
-    expire_at TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL,
-    checked_at TIMESTAMP(6) WITHOUT TIME ZONE,
+    send_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    expire_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    checked_at TIMESTAMP(6) WITH TIME ZONE,
     send_count INTEGER NOT NULL,
     fail_count INTEGER NOT NULL,
     CONSTRAINT ck_registration_otp_status CHECK (status BETWEEN 0 AND 2)
 );
 
+-- An activation may exist before its embedded OTP record is initialized.
 CREATE TABLE auth.activation (
     id UUID PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
-    initialized_at TIMESTAMP(6) WITHOUT TIME ZONE,
+    initialized_at TIMESTAMP(6) WITH TIME ZONE,
     otp_code VARCHAR(255),
     status SMALLINT,
-    send_at TIMESTAMP(6) WITHOUT TIME ZONE,
-    expire_at TIMESTAMP(6) WITHOUT TIME ZONE,
-    checked_at TIMESTAMP(6) WITHOUT TIME ZONE,
-    send_count INTEGER NOT NULL DEFAULT 0,
-    fail_count INTEGER NOT NULL DEFAULT 0,
+    send_at TIMESTAMP(6) WITH TIME ZONE,
+    expire_at TIMESTAMP(6) WITH TIME ZONE,
+    checked_at TIMESTAMP(6) WITH TIME ZONE,
+    send_count INTEGER DEFAULT 0,
+    fail_count INTEGER DEFAULT 0,
     CONSTRAINT ck_activation_otp_status CHECK (status BETWEEN 0 AND 2)
 );
 

@@ -1,6 +1,6 @@
 package com.jdc.auth.model.entity;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 import com.jdc.auth.model.entity.dto.OtpRecord;
@@ -25,9 +25,9 @@ public class Registration {
 	private String email;
 	
 	@Column(nullable = false)
-	private LocalDateTime registeredAt;
+	private Instant registeredAt;
 	
-	private LocalDateTime initializedAt;
+	private Instant initializedAt;
 	
 	@Embedded
 	private OtpRecord otpRecord = new OtpRecord();

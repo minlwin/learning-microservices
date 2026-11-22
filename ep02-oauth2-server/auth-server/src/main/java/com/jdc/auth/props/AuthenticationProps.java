@@ -60,6 +60,9 @@ public class AuthenticationProps {
 		validateProfileDefaults(activation);
 		for (var entry : resources.entrySet()) {
 			var resource = entry.getValue();
+			if (!systems.keySet().containsAll(resource.getEmailCheckSystems())) {
+				throw new IllegalStateException("Email-check permission refers to an unknown system: " + entry.getKey());
+			}
 			if (entry.getKey().isBlank() || resource.getSecret() == null || resource.getSecret().isBlank()
 					|| resource.getAudiences().isEmpty() || resource.getAudiences().stream().anyMatch(String::isBlank)) {
 				throw new IllegalStateException("Resource requires a secret and audiences: " + entry.getKey());
@@ -86,6 +89,7 @@ public class AuthenticationProps {
 
 	@Data
 	public static class Resource {
+		private Set<String> emailCheckSystems = Set.of();
 		private String secret;
 		private List<String> audiences = List.of();
 	}

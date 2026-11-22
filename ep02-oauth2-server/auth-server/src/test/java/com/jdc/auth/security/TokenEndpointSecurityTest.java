@@ -26,6 +26,7 @@ import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import com.jdc.auth.model.entity.Profile;
+import com.jdc.auth.model.entity.Identity;
 import com.jdc.auth.model.repo.ProfileRepo;
 import com.jdc.auth.props.AuthenticationProps;
 import com.jdc.auth.AuthTestProperties;
@@ -33,6 +34,8 @@ import com.jdc.auth.service.LoginTicketService;
 import com.jdc.auth.service.LogoutService;
 import com.jdc.auth.service.TokenValidationService;
 import com.jdc.auth.api.LogoutApi;
+import com.jdc.auth.api.EmailCheckApi;
+import com.jdc.auth.service.EmailCheckService;
 import com.jdc.auth.api.TokenIntrospectionApi;
 import com.jdc.auth.exceptions.handler.ExceptionHandlers;
 
@@ -72,6 +75,7 @@ class TokenEndpointSecurityTest {
 					"consumer-service", AuthTestProperties.resource("consumer-resource-secret", "consumer.api", "management.api"),
 					"management-service", AuthTestProperties.resource("management-resource-secret", "management.api"),
 					"orders-service", AuthTestProperties.resource("orders-secret", "orders.api")));
+			properties.getResources().get("consumer-service").setEmailCheckSystems(Set.of("Consumer"));
 			return properties;
 		}
 
@@ -99,10 +103,13 @@ class TokenEndpointSecurityTest {
 		context = new AnnotationConfigWebApplicationContext();
 		context.setServletContext(new MockServletContext());
 		context.register(Config.class, SecurityConfig.class, AuthorizationServerConfig.class, ExceptionHandlers.class,
-				SessionSecurityConfig.class, TokenValidationService.class, LogoutService.class, LogoutApi.class, TokenIntrospectionApi.class);
+				SessionSecurityConfig.class, TokenValidationService.class, LogoutService.class, LogoutApi.class, TokenIntrospectionApi.class, EmailCheckService.class, EmailCheckApi.class);
 		context.refresh();
 		mvc = MockMvcBuilders.webAppContextSetup(context).addFilters(context.getBean(FilterChainProxy.class)).build();
 		profile = new Profile();
+		var identity = new Identity();
+		identity.setUsername("alice@example.com");
+		profile.setIdentity(identity);
 		profile.setId(UUID.randomUUID());
 		profile.setSystem("Consumer");
 		profile.setRole("Consumer");
@@ -248,6 +255,7 @@ class TokenEndpointSecurityTest {
 				.header("Authorization", basic("management-service", "management-resource-secret")).param("token", token.get("access_token")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.active").value(true))
 				.andExpect(jsonPath("$.roles[0]").value("Administrator"))
+				.andExpect(jsonPath("$.username").value("alice@example.com"))
 				.andExpect(jsonPath("$.system").value("Management"))
 				.andExpect(jsonPath("$.aud[0]").value("management.api"));
 		mvc.perform(post("/oauth2/token").header("Authorization", basic("management-demo", "management-demo-secret"))
@@ -288,6 +296,40 @@ class TokenEndpointSecurityTest {
 		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
 				.header("Authorization", basic("orders-service", "orders-secret")).param("token", tokens.get("access_token")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
+	}
+
+	@Test
+	void emailCheckRequiresServiceCredentialsAndExplicitSystemPermission() throws Exception {
+		String uri = "/api/internal/profiles/email/check";
+		String body = "{\"system\":\"Consumer\",\"email\":\"alice@example.com\"}";
+		mvc.perform(post(uri).contentType("application/json").content(body)).andExpect(status().isUnauthorized());
+		mvc.perform(post(uri).header("Authorization", "Bearer user-token").contentType("application/json").content(body))
+				.andExpect(status().isUnauthorized());
+		mvc.perform(post(uri).header("Authorization", basic("consumer-demo", "consumer-demo-secret"))
+				.contentType("application/json").content(body)).andExpect(status().isUnauthorized());
+		mvc.perform(post(uri).header("Authorization", basic("management-service", "management-resource-secret"))
+				.contentType("application/json").content(body)).andExpect(status().isForbidden());
+		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
+				.contentType("application/json").content(body.replace("Consumer", "Management"))).andExpect(status().isForbidden());
+		verify(context.getBean(ProfileRepo.class), never()).existsByIdentityUsernameAndSystem(anyString(), anyString());
+	}
+
+	@Test
+	void emailCheckReturnsSameSystemExistenceAndRejectsInvalidInput() throws Exception {
+		String uri = "/api/internal/profiles/email/check";
+		String body = "{\"system\":\"Consumer\",\"email\":\"alice@example.com\"}";
+		var profiles = context.getBean(ProfileRepo.class);
+		when(profiles.existsByIdentityUsernameAndSystem("alice@example.com", "Consumer")).thenReturn(true, false);
+		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
+				.contentType("application/json").content(body)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.exists").value(true)).andExpect(header().string("Cache-Control", "no-store"));
+		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
+				.contentType("application/json").content(body)).andExpect(status().isOk()).andExpect(jsonPath("$.exists").value(false));
+		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
+				.contentType("application/json").content(body.replace("alice@example.com", "invalid"))).andExpect(status().isBadRequest());
+		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
+				.contentType("application/json").content(body.replace("Consumer", ""))).andExpect(status().isBadRequest());
+		verify(profiles, times(2)).existsByIdentityUsernameAndSystem("alice@example.com", "Consumer");
 	}
 
 	private Map<String, String> exchange(String client, String secret, String ticket) throws Exception {

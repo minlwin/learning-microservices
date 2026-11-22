@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
+import com.jdc.auth.props.MailConfigProps;
+import com.jdc.auth.props.OtpCodeProps;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -26,7 +28,7 @@ class OtpCodeServiceTest {
 	void sendsGeneratedCodeToRegistrationEmail() throws Exception {
 		var sender = mock(JavaMailSender.class);
 		when(sender.createMimeMessage()).thenReturn(new MimeMessage(Session.getInstance(new Properties())));
-		var service = new OtpCodeService(sender, "no-reply@wallet-demo.local", 3);
+		var service = new OtpCodeService(sender, mailProperties(), new OtpCodeProps());
 
 		var code = service.sendForRegistration("consumer@example.com");
 
@@ -47,11 +49,16 @@ class OtpCodeServiceTest {
 	void propagatesMailFailureInsteadOfReturningCode() {
 		var sender = mock(JavaMailSender.class);
 		when(sender.createMimeMessage()).thenReturn(new MimeMessage(Session.getInstance(new Properties())));
-		var service = new OtpCodeService(sender, "no-reply@wallet-demo.local", 3);
+		var service = new OtpCodeService(sender, mailProperties(), new OtpCodeProps());
 		doThrow(new MailSendException("SMTP unavailable"))
 				.when(sender).send(any(MimeMessage.class));
 
 		assertThrows(MailSendException.class,
 				() -> service.sendForRegistration("consumer@example.com"));
+	}
+	private MailConfigProps mailProperties() {
+		var properties = new MailConfigProps();
+		properties.setFrom("no-reply@wallet-demo.local");
+		return properties;
 	}
 }

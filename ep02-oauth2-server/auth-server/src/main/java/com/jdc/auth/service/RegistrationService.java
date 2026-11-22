@@ -1,10 +1,11 @@
 package com.jdc.auth.service;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.time.Instant;
+import java.time.Duration;
 import java.util.UUID;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.jdc.auth.props.AuthenticationProps;
+import com.jdc.auth.props.OtpCodeProps;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -33,12 +34,11 @@ import lombok.RequiredArgsConstructor;
 @Transactional
 @RequiredArgsConstructor
 public class RegistrationService {
+	private final AuthenticationProps properties;
+	private final OtpCodeProps otpProperties;
+
 	
 	private static final String NO_DATA_MESSAGE = "No registration was found for the provided ID.";
-	@Value("${app.auth.registration.system:Consumer}")
-	private String profileSystem = "Consumer";
-	@Value("${app.auth.registration.role:Consumer}")
-	private String profileRole = "Consumer";
 
 	private final PasswordEncoder passwordEncoder;
 
@@ -49,17 +49,9 @@ public class RegistrationService {
 	private final IdentityRepo identityRepo;
 	private final ProfileRepo profileRepo;
 	
-	@Value("${app.otp.expiration.registration}")
-	private int otpExpiration;
 	
-	@Value("${app.otp.cooldown.missing-count}")
-	private int otpCooldownMissingCount;
 
-	@Value("${app.otp.cooldown.waiting-duration}")
-	private int otpCooldownWait;
 
-	@Value("${app.otp.resend.interval-seconds:60}")
-	private int resendIntervalSeconds;
 
 	public RegistrationResult register(RegistrationForm form) {
 		
@@ -67,7 +59,7 @@ public class RegistrationService {
 		
 		var registration = new Registration();
 		registration.setEmail(form.email());
-		registration.setRegisteredAt(LocalDateTime.now());
+		registration.setRegisteredAt(Instant.now());
 		
 		var otpCode = otpService.sendForRegistration(form.email());
 
@@ -75,8 +67,8 @@ public class RegistrationService {
 		otpRecord.setOtpCode(passwordEncoder.encode(otpCode));
 		otpRecord.setStatus(CheckStatus.Send);
 		otpRecord.setSendCount(1);
-		otpRecord.setSendAt(LocalDateTime.now());
-		otpRecord.setExpireAt(otpRecord.getSendAt().plusMinutes(otpExpiration));
+		otpRecord.setSendAt(Instant.now());
+		otpRecord.setExpireAt(otpRecord.getSendAt().plus(Duration.ofMinutes(otpProperties.getExpiration().getRegistration())));
 		
 		registration.setOtpRecord(otpRecord);
 		registration = registrationRepo.save(registration);
@@ -96,12 +88,12 @@ public class RegistrationService {
 			throw new BusinessRuleViolationException("Your email address has already been verified. Please continue with account initialization.");
 		}
 		
-		if(!otpRecord.getExpireAt().isAfter(LocalDateTime.now())) {
+		if(!otpRecord.getExpireAt().isAfter(Instant.now())) {
 			throw new BusinessRuleViolationException("Your verification code has expired. Please request a new code.");
 		}
 		
 		checkCooldown(otpRecord);
-		otpRecord.setCheckedAt(LocalDateTime.now());
+		otpRecord.setCheckedAt(Instant.now());
 		
 		if(!passwordEncoder.matches(form.otpCode(), registration.getOtpRecord().getOtpCode())) {
 			otpRecord.setStatus(CheckStatus.Fail);
@@ -123,8 +115,8 @@ public class RegistrationService {
 		}
 		
 		checkCooldown(otpRecord);
-		var resendAfter = otpRecord.getSendAt().plusSeconds(resendIntervalSeconds);
-		if(resendAfter.isAfter(LocalDateTime.now())) {
+		var resendAfter = otpRecord.getSendAt().plusSeconds(otpProperties.getResend().getIntervalSeconds());
+		if(resendAfter.isAfter(Instant.now())) {
 			throw new BusinessRuleViolationException("Please wait until %s before requesting another code.".formatted(resendAfter));
 		}
 
@@ -134,11 +126,14 @@ public class RegistrationService {
 		otpRecord.setOtpCode(passwordEncoder.encode(otpCode));
 		otpRecord.setStatus(CheckStatus.Send);
 		otpRecord.setSendCount(otpRecord.getSendCount() + 1);
-		otpRecord.setSendAt(LocalDateTime.now());
-		otpRecord.setExpireAt(otpRecord.getSendAt().plusMinutes(otpExpiration));
+		otpRecord.setSendAt(Instant.now());
+		otpRecord.setExpireAt(otpRecord.getSendAt().plus(Duration.ofMinutes(otpProperties.getExpiration().getRegistration())));
 	}
 
 	public InitializationResult initialize(UUID id, InitializationForm form) {
+		// TODO: Return or enable obtaining a restricted onboarding token after profile
+		// initialization, allowing Pending consumers to submit KYC to Consumer service.
+		// Keep full consumer API permissions unavailable until approval/activation.
 		var registration = registrationRepo.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException(NO_DATA_MESSAGE));
 		
@@ -156,28 +151,28 @@ public class RegistrationService {
 			return identityRepo.save(entity);
 		});
 		
-		if(profileRepo.existsByIdentityAndSystem(identity, profileSystem)) {
+		if(profileRepo.existsByIdentityAndSystem(identity, properties.getRegistration().getSystem())) {
 			throw new BusinessRuleViolationException("A consumer account already exists for this email address.");
 		}
 
 		var profile = new Profile();
 		profile.setIdentity(identity);
-		profile.setSystem(profileSystem);
-		profile.setRole(profileRole);
+		profile.setSystem(properties.getRegistration().getSystem());
+		profile.setRole(properties.getRegistration().getRole());
 		profile.setStatus(Status.Pending);
 		profile.setPassword(passwordEncoder.encode(form.password()));
 		
 		profile = profileRepo.save(profile);
-		registration.setInitializedAt(LocalDateTime.now());
+		registration.setInitializedAt(Instant.now());
 		
 		return new InitializationResult(profile.getId());
 	}
 
 	private void checkCooldown(OtpRecord otpRecord) {
-		if(otpRecord.getFailCount() >= otpCooldownMissingCount) {
-			var waitTo = otpRecord.getCheckedAt().plusMinutes(otpCooldownWait);
-			if(waitTo.isAfter(LocalDateTime.now())) {
-				throw new BusinessRuleViolationException("You have reached the failed verification attempt limit. Please try again after %s.".formatted(waitTo.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
+		if(otpRecord.getFailCount() >= otpProperties.getCooldown().getMissingCount()) {
+			var waitTo = otpRecord.getCheckedAt().plus(Duration.ofMinutes(otpProperties.getCooldown().getWaitingDuration()));
+			if(waitTo.isAfter(Instant.now())) {
+				throw new BusinessRuleViolationException("You have reached the failed verification attempt limit. Please try again after %s.".formatted(waitTo));
 			}
 			otpRecord.setFailCount(0);
 		}

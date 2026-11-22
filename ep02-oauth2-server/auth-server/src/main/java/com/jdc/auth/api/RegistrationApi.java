@@ -25,6 +25,8 @@ public class RegistrationApi {
 	
 	private final RegistrationService service;
 
+	// Trusted subsystem duplication checks are handled separately by EmailCheckApi.
+
 	/**
 	 * Consumer self-registration
 	 * 

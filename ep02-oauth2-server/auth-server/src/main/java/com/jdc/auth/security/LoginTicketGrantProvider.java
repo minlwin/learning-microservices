@@ -14,6 +14,7 @@ import org.springframework.security.oauth2.server.authorization.token.*;
 import com.jdc.auth.service.LoginTicketService;
 
 public class LoginTicketGrantProvider implements AuthenticationProvider {
+	
 	private final LoginTicketService tickets;
 	private final OAuth2AuthorizationService authorizations;
 	private final OAuth2TokenGenerator<?> generator;
@@ -42,7 +43,8 @@ public class LoginTicketGrantProvider implements AuthenticationProvider {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
 		}
 		grant.setTokenVersion(login.tokenVersion());
-		var principal = UsernamePasswordAuthenticationToken.authenticated(login.profileId().toString(), null, List.of());
+		var principal = UsernamePasswordAuthenticationToken.authenticated(login.profileId().toString(), null,
+				List.of());
 		var scopes = registered.getScopes();
 		var context = DefaultOAuth2TokenContext.builder().registeredClient(registered).principal(principal)
 				.authorizationServerContext(AuthorizationServerContextHolder.getContext()).authorizedScopes(scopes)

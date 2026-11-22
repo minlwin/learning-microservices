@@ -1,9 +1,11 @@
 package com.jdc.auth.service;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.Duration;
 import java.util.UUID;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.jdc.auth.props.AuthenticationProps;
+import com.jdc.auth.props.OtpCodeProps;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -29,11 +31,10 @@ import lombok.RequiredArgsConstructor;
 @Transactional
 @RequiredArgsConstructor
 public class ActivationService {
+	private final AuthenticationProps properties;
+	private final OtpCodeProps otpProperties;
 
-	@Value("${app.auth.activation.system:Management}")
-	private String profileSystem = "Management";
-	@Value("${app.auth.activation.role:Management}")
-	private String profileRole = "Management";
+
 
 	private final ActivationRepo activationRepo;
 	private final IdentityRepo identityRepo;
@@ -41,14 +42,6 @@ public class ActivationService {
 	private final PasswordEncoder passwordEncoder;
 	private final OtpCodeService otpService;
 
-	@Value("${app.otp.expiration.activation}")
-	private int otpExpiration;
-	@Value("${app.otp.cooldown.missing-count}")
-	private int maxFailures;
-	@Value("${app.otp.cooldown.waiting-duration}")
-	private int cooldownMinutes;
-	@Value("${app.otp.resend.interval-seconds:60}")
-	private int resendIntervalSeconds;
 
 	/** Sends the first code; repeated requests follow the same resend restrictions. */
 	public void request(UUID id) {
@@ -74,10 +67,10 @@ public class ActivationService {
 			throw new BusinessRuleViolationException("Your email address has already been verified. Please continue with account initialization.");
 		}
 		checkCooldown(otp);
-		if(!otp.getExpireAt().isAfter(LocalDateTime.now())) {
+		if(!otp.getExpireAt().isAfter(Instant.now())) {
 			throw new BusinessRuleViolationException("Your verification code has expired. Please request a new code.");
 		}
-		otp.setCheckedAt(LocalDateTime.now());
+		otp.setCheckedAt(Instant.now());
 		if(!passwordEncoder.matches(form.otpCode(), otp.getOtpCode())) {
 			otp.setStatus(CheckStatus.Fail);
 			otp.setFailCount(otp.getFailCount() + 1);
@@ -96,17 +89,17 @@ public class ActivationService {
 			created.setUsername(activation.getEmail());
 			return identityRepo.save(created);
 		});
-		if(profileRepo.existsByIdentityAndSystem(identity, profileSystem)) {
+		if(profileRepo.existsByIdentityAndSystem(identity, properties.getActivation().getSystem())) {
 			throw new BusinessRuleViolationException("A management account already exists for this email address.");
 		}
 		var profile = new Profile();
 		profile.setIdentity(identity);
-		profile.setSystem(profileSystem);
-		profile.setRole(profileRole);
+		profile.setSystem(properties.getActivation().getSystem());
+		profile.setRole(properties.getActivation().getRole());
 		profile.setStatus(Profile.Status.Active);
 		profile.setPassword(passwordEncoder.encode(form.password()));
 		profile = profileRepo.save(profile);
-		activation.setInitializedAt(LocalDateTime.now());
+		activation.setInitializedAt(Instant.now());
 		return new InitializationResult(profile.getId());
 	}
 
@@ -129,23 +122,23 @@ public class ActivationService {
 			throw new BusinessRuleViolationException("Your email address has already been verified. Please continue with account initialization.");
 		}
 		checkCooldown(otp);
-		var now = LocalDateTime.now();
-		if(otp.getSendAt() != null && otp.getSendAt().plusSeconds(resendIntervalSeconds).isAfter(now)) {
+		var now = Instant.now();
+		if(otp.getSendAt() != null && otp.getSendAt().plusSeconds(otpProperties.getResend().getIntervalSeconds()).isAfter(now)) {
 			throw new BusinessRuleViolationException("Please wait until %s before requesting another code."
-					.formatted(otp.getSendAt().plusSeconds(resendIntervalSeconds)));
+					.formatted(otp.getSendAt().plusSeconds(otpProperties.getResend().getIntervalSeconds())));
 		}
-		var code = otpService.sendForActivation(activation.getEmail(), otpExpiration);
+		var code = otpService.sendForActivation(activation.getEmail(), otpProperties.getExpiration().getActivation());
 		otp.setOtpCode(passwordEncoder.encode(code));
 		otp.setStatus(CheckStatus.Send);
 		otp.setSendCount(otp.getSendCount() + 1);
 		otp.setSendAt(now);
-		otp.setExpireAt(now.plusMinutes(otpExpiration));
+		otp.setExpireAt(now.plus(Duration.ofMinutes(otpProperties.getExpiration().getActivation())));
 	}
 
 	private void checkCooldown(OtpRecord otp) {
-		if(otp.getFailCount() >= maxFailures) {
-			var retryAt = otp.getCheckedAt().plusMinutes(cooldownMinutes);
-			if(retryAt.isAfter(LocalDateTime.now())) {
+		if(otp.getFailCount() >= otpProperties.getCooldown().getMissingCount()) {
+			var retryAt = otp.getCheckedAt().plus(Duration.ofMinutes(otpProperties.getCooldown().getWaitingDuration()));
+			if(retryAt.isAfter(Instant.now())) {
 				throw new BusinessRuleViolationException("You have reached the failed verification attempt limit. Please try again after %s.".formatted(retryAt));
 			}
 			otp.setFailCount(0);

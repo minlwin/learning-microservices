@@ -1,6 +1,6 @@
 package com.jdc.auth.model.entity.dto;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
@@ -21,12 +21,12 @@ public class OtpRecord {
 	private CheckStatus status;
 	
 	@Column(nullable = false)
-	private LocalDateTime sendAt;
+	private Instant sendAt;
 
 	@Column(nullable = false)
-	private LocalDateTime expireAt;
+	private Instant expireAt;
 	
-	private LocalDateTime checkedAt;
+	private Instant checkedAt;
 
 	private int sendCount;
 	private int failCount;
