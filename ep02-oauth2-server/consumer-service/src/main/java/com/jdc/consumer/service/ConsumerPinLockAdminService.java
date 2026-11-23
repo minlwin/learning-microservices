@@ -19,7 +19,7 @@ public class ConsumerPinLockAdminService {
     private final AuthenticationProps properties;
     private final RestClient authServer;
 
-    public void unlock(UUID accountId, String requestedBy) {
+    public void unlockPermanentPin(UUID accountId, String requestedBy) {
         var account = accounts.findById(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("No consumer account was found for the provided ID."));
         var form = new PinLockUnlockForm("Consumer", account.getEmail(), requestedBy);

@@ -292,7 +292,7 @@ For authenticated management users reviewing Consumer accounts and operational h
 | Account | PUT | `/api/management/consumer/{id}/approve` | Approve an Applied account. |
 | Access History | GET | `/api/management/consumer/access` | Search login/logout events. |
 | PIN Lock | GET | `/api/management/consumer/lock` | Search lock events and current lock state. |
-| PIN Lock | PUT | `/api/management/consumer/lock/{id}/unlock` | Unlock an account. |
+| PIN Lock | PUT | `/api/management/consumer/lock/{id}/unlock` | Request Auth Server to unlock a permanent PIN lock. |
 
 ### Account
 
@@ -554,7 +554,7 @@ Returns PIN lock events with each account’s current lock state. Ordered by loc
 
 | Field | Type | Location | Required | Sample Value | Definition |
 | --- | --- | --- | --- | --- | --- |
-| `status` | `AccountLockStatus.Status` | Query | No | `Locked` | Current account lock status: Active or Locked; not historical lock type. |
+| `status` | `AccountLockStatus.Status` | Query | No | `Locked` | Current permanent PIN lock projection: Active or Locked; temporary lock state is managed by Auth Server and is not reflected here. |
 | `dateFrom` | `LocalDate` | Query | No | `2026-11-01` | Inclusive event date in UTC, YYYY-MM-DD. |
 | `dateTo` | `LocalDate` | Query | No | `2026-11-30` | Inclusive event date in UTC; must not precede dateFrom. |
 | `keyword` | `String` | Query | No | `alice` | Case-insensitive literal prefix of name, email, or phone. SQL wildcards are escaped. |
@@ -580,7 +580,7 @@ The page `content` contains `LockHistoryListItem` records. Pagination fields are
 | `accountId` | `UUID` | `550e8400-e29b-41d4-a716-446655440000` | Consumer account UUID used for unlocking. |
 | `lockType` | `PinLockHistory.LockType` | `Temporary` | Temporary or Permenant (current enum spelling). |
 | `lockAt` | `Instant` | `2026-11-22T07:00:00Z` | Instant when the lock event occurred. |
-| `lockStatus` | `AccountLockStatus.Status (nullable)` | `Locked` | Current Active/Locked state; may be null. |
+| `lockStatus` | `AccountLockStatus.Status (nullable)` | `Locked` | Current permanent PIN lock projection (Active or Locked); temporary locks remain in Auth Server. May be null when no projection exists. |
 | `statusChangeAt` | `Instant (nullable)` | `2026-11-22T07:00:00Z` | Instant of the current lock-state change; may be null. |
 | `name` | `String (nullable)` | `Alice` | Current consumer name. |
 | `email` | `String` | `alice@example.com` | Current consumer email. |
@@ -629,7 +629,7 @@ Response: `200 OK`, `application/json`. The JSON below shows the item and princi
 
 `PUT /api/management/consumer/lock/{id}/unlock`
 
-Changes current lock state from Locked to Active and updates statusChangeAt, using a pessimistic row lock. Returns 404 if no current lock record exists, or 400 if already Active. Preserves history, approval, and access state. Auth-server notification remains a TODO. After unlocking, past events remain visible, but no longer match the Locked current-status filter.
+Requests Auth Server to release the consumer's permanent PIN lock. Auth Server is the source of truth and publishes the unlock event; this service records the event and updates its `AccountLockStatus` projection asynchronously. Temporary PIN locks cannot be released through this endpoint. Releasing a lock preserves PIN lock history, account approval, and access state. Once the unlock event is consumed, past events remain visible, but no longer match the Locked current-status filter.
 
 ##### Path Parameters
 
@@ -748,7 +748,7 @@ Request body and query parameters: none. Missing account returns 404; missing tr
 | `status` | `Account.Status` | `Approved` | Applied or Approved. |
 | `registeredAt` | `Instant` | `2026-11-22T06:30:00Z` | UTC registration instant. |
 | `approvedAt` | `Instant (nullable)` | `2026-11-22T07:00:00Z` | UTC approval instant; null until approved. |
-| `lockStatus` | `AccountLockStatus.Status (nullable)` | `Active` | Active or Locked; null if no current lock record exists. |
+| `lockStatus` | `AccountLockStatus.Status (nullable)` | `Active` | Current permanent PIN lock projection (Active or Locked); temporary locks remain in Auth Server. Null if no projection exists. |
 | `accessStatus` | `AccountAccess.Status (nullable)` | `Logout` | Login or Logout; null if no current access record exists. |
 
 ```bash

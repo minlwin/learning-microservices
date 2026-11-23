@@ -10,6 +10,7 @@ import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToOne;
 import lombok.Data;
 
+/** Read projection of the account's permanent PIN lock state from Auth Server events. */
 @Data
 @Entity
 public class AccountLockStatus {

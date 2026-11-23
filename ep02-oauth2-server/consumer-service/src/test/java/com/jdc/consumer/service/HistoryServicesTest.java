@@ -1,15 +1,14 @@
 package com.jdc.consumer.service;
 
-import com.jdc.consumer.model.query.LockHistoryQuery;
-
-import com.jdc.consumer.model.query.AccessHistoryQuery;
-
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
-import java.util.UUID;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -23,16 +22,16 @@ import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import com.jdc.consumer.api.management.input.AccessHistorySearch;
 import com.jdc.consumer.api.management.input.LockHistorySearch;
 import com.jdc.consumer.exceptions.BusinessRuleViolationException;
-import com.jdc.consumer.exceptions.ResourceNotFoundException;
 import com.jdc.consumer.model.BaseRepositoryImpl;
+import com.jdc.consumer.model.entity.AccessHistory;
 import com.jdc.consumer.model.entity.Account;
 import com.jdc.consumer.model.entity.AccountAccess;
 import com.jdc.consumer.model.entity.AccountLockStatus;
-import com.jdc.consumer.model.entity.AccessHistory;
 import com.jdc.consumer.model.entity.PinLockHistory;
 import com.jdc.consumer.model.entity.dto.AccountAccessPk;
+import com.jdc.consumer.model.query.AccessHistoryQuery;
+import com.jdc.consumer.model.query.LockHistoryQuery;
 import com.jdc.consumer.model.repo.AccessHistoryRepo;
-import com.jdc.consumer.model.repo.AccountLockStatusRepo;
 import com.jdc.consumer.model.repo.PinLockHistoryRepo;
 
 import jakarta.persistence.EntityManager;
@@ -43,6 +42,7 @@ class HistoryServicesTest {
 	private EntityManager em;
 	private AccessHistoryService access;
 	private LockStatusService locks;
+	private ConsumerPinLockAdminService pinLockAdmin;
 	private Account alice;
 	private final LocalDate date = LocalDate.of(2026, 11, 22);
 
@@ -58,7 +58,8 @@ class HistoryServicesTest {
 		var repos = new JpaRepositoryFactory(em);
 		repos.setRepositoryBaseClass(BaseRepositoryImpl.class);
 		access = new AccessHistoryService(repos.getRepository(AccessHistoryRepo.class), new AccessHistoryQuery());
-		locks = new LockStatusService(repos.getRepository(PinLockHistoryRepo.class), repos.getRepository(AccountLockStatusRepo.class), new LockHistoryQuery());
+		pinLockAdmin = mock(ConsumerPinLockAdminService.class);
+		locks = new LockStatusService(repos.getRepository(PinLockHistoryRepo.class), new LockHistoryQuery(), pinLockAdmin);
 		em.getTransaction().begin();
 		alice = account("Alice", AccountLockStatus.Status.Locked);
 		var bob = account("Bob", AccountLockStatus.Status.Active);
@@ -108,23 +109,14 @@ class HistoryServicesTest {
 	}
 
 	@Test
-	void unlocksCurrentStateWithoutDeletingHistoryOrApprovingAccount() {
-		em.getTransaction().begin();
-		try {
-			locks.unlock(alice.getId());
-			em.flush();
-			em.clear();
-			var state = em.find(AccountLockStatus.class, alice.getId());
-			assertEquals(AccountLockStatus.Status.Active, state.getStatus());
-			assertTrue(state.getStatusChangeAt().isAfter(Instant.parse("2026-11-22T00:00:00Z")));
-			assertEquals(Account.Status.Applied, em.find(Account.class, alice.getId()).getStatus());
-			assertEquals(2, locks.search(new LockHistorySearch(null, date, date, "Alice"), 0, 10).getTotalElements());
-			assertThrows(BusinessRuleViolationException.class, () -> locks.unlock(alice.getId()));
-			assertThrows(ResourceNotFoundException.class, () -> locks.unlock(UUID.randomUUID()));
-		} finally {
-			em.getTransaction().rollback();
-			em.clear();
-		}
+	void unlockDelegatesToAuthServerAndKeepsLocalStatusAsAnEventProjection() {
+		locks.unlockPermanentPin(alice.getId(), "management-profile-id");
+
+		verify(pinLockAdmin).unlockPermanentPin(alice.getId(), "management-profile-id");
+		assertEquals(AccountLockStatus.Status.Locked,
+				em.find(AccountLockStatus.class, alice.getId()).getStatus());
+		assertEquals(Account.Status.Applied, em.find(Account.class, alice.getId()).getStatus());
+		assertEquals(2, locks.search(new LockHistorySearch(null, date, date, "Alice"), 0, 10).getTotalElements());
 	}
 
 	private Account account(String name, AccountLockStatus.Status status) {

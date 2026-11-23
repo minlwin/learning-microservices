@@ -9,8 +9,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.jdc.consumer.event.PinLockActivityChangedEvent;
 import com.jdc.consumer.exceptions.ResourceNotFoundException;
+import com.jdc.consumer.model.entity.Account;
+import com.jdc.consumer.model.entity.AccountLockStatus;
 import com.jdc.consumer.model.entity.PinLockHistory;
 import com.jdc.consumer.model.repo.AccountRepo;
+import com.jdc.consumer.model.repo.AccountLockStatusRepo;
 import com.jdc.consumer.model.repo.PinLockHistoryRepo;
 
 import lombok.RequiredArgsConstructor;
@@ -25,6 +28,7 @@ public class PinLockActivityEventListener {
 
     private final ObjectMapper objectMapper;
     private final AccountRepo accounts;
+    private final AccountLockStatusRepo lockStatuses;
     private final PinLockHistoryRepo histories;
 
     @KafkaListener(topics = "#{@kafkaProps.pinLock.activityTopic}",
@@ -51,7 +55,26 @@ public class PinLockActivityEventListener {
         history.setLockedUntil(event.lockedUntil());
         history.setRequestedBy(event.requestedBy());
         histories.save(history);
+        updatePermanentLockProjection(account, event);
         log.info("Recorded PIN lock event {} for consumer account {}.", event.eventId(), account.getId());
+    }
+
+    private void updatePermanentLockProjection(Account account, PinLockActivityChangedEvent event) {
+        AccountLockStatus.Status status = switch (event.action()) {
+            case "PermanentlyLocked" -> AccountLockStatus.Status.Locked;
+            case "PermanentUnlocked" -> AccountLockStatus.Status.Active;
+            default -> null;
+        };
+        if (status == null) {
+            return;
+        }
+
+        var lockStatus = lockStatuses.findForUpdate(account.getId()).orElseGet(AccountLockStatus::new);
+        lockStatus.setId(account.getId());
+        lockStatus.setAccount(account);
+        lockStatus.setStatus(status);
+        lockStatus.setStatusChangeAt(event.changedAt() == null ? Instant.now() : event.changedAt());
+        lockStatuses.save(lockStatus);
     }
 
     private PinLockHistory.LockType lockType(String action) {

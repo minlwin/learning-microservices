@@ -15,7 +15,6 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticatedPrincipal;
 import com.jdc.consumer.api.management.input.LockHistorySearch;
 import com.jdc.consumer.api.management.output.LockHistoryListItem;
 import com.jdc.consumer.service.LockStatusService;
-import com.jdc.consumer.service.ConsumerPinLockAdminService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -25,7 +24,6 @@ import lombok.RequiredArgsConstructor;
 public class ConsumerLockStatusManagementApi {
 
 	private final LockStatusService service;
-	private final ConsumerPinLockAdminService pinLockService;
 
 	@GetMapping
 	public Page<LockHistoryListItem> search(LockHistorySearch form,
@@ -35,12 +33,8 @@ public class ConsumerLockStatusManagementApi {
 	}
 
 	@PutMapping("{id}/unlock")
-	public void unlock(@PathVariable UUID id) {
-		service.unlock(id);
-	}
-
-	@PutMapping("{id}/pin-lock/unlock")
-	public void unlockPin(@PathVariable UUID id, @AuthenticationPrincipal OAuth2AuthenticatedPrincipal principal) {
-		pinLockService.unlock(id, principal.getName());
+	public void unlockPermanentPin(@PathVariable UUID id,
+			@AuthenticationPrincipal OAuth2AuthenticatedPrincipal principal) {
+		service.unlockPermanentPin(id, principal.getName());
 	}
 }

@@ -29,7 +29,7 @@ public class ManagementAccountApi {
 
 	@GetMapping
 	public Page<AccountListItem> search(
-			@Validated AccountSearch form, 
+			AccountSearch form, 
 			@RequestParam(required = false, defaultValue = "0") int page,
 			@RequestParam(required = false, defaultValue = "10") int size) {
 		return service.search(form, page, size);

@@ -258,6 +258,8 @@ For authenticated management users maintaining system PIN lock policies.
 | Account | GET | `/api/accounts` | Search management accounts. |
 | Account | POST | `/api/accounts` | Create a Pending management account. |
 | Account | PUT | `/api/accounts/{id}` | Update account name and phone. |
+| PIN Lock History | GET | `/api/accounts/pin-lock` | Search PIN lock activity for management accounts. |
+| PIN Lock History | PUT | `/api/accounts/pin-lock/{id}/unlock` | Request Auth Server to unlock a permanent PIN lock. |
 | Client System | GET | `/api/setting/systems` | List all configured client systems. |
 | PIN Lock Setting | GET | `/api/setting/pin-locks` | List non-deleted PIN lock settings. |
 | PIN Lock Setting | GET | `/api/setting/pin-locks/systems` | List configured systems available for creating settings. |
@@ -428,6 +430,52 @@ curl -X PUT "${BASE_URL}/api/accounts/550e8400-e29b-41d4-a716-446655440000" \
 HTTP/1.1 200 OK
 
 ```
+
+### PIN Lock History
+
+#### Search PIN lock history
+
+`GET /api/accounts/pin-lock`
+
+Returns activity recorded for Management-system accounts, ordered by event time descending, account UUID ascending, then history UUID descending. Date filters are inclusive UTC calendar dates. The history records temporary locks, permanent locks, and permanent unlocks; temporary lock expiration is applied by Auth Server on a later PIN operation.
+
+##### Search Form — `PinLockHistorySearch`
+
+| Field | Type | Location | Required | Sample Value | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `lockType` | `PinLockHistory.LockType` | Query | No | `Permenant` | Filter by `Temporary`, `Permenant`, or `Released`. `Permenant` preserves the current enum spelling. |
+| `dateFrom` | `LocalDate` | Query | No | `2026-11-01` | Inclusive event date in UTC. |
+| `dateTo` | `LocalDate` | Query | No | `2026-11-30` | Inclusive event date in UTC; must not precede `dateFrom`. |
+| `keyword` | `String` | Query | No | `alice` | Case-insensitive literal prefix of account name, email, or phone. SQL wildcards are escaped. |
+| `page` | `int` | Query | No | `0` | Zero-based page index; defaults to 0 and must not be negative. |
+| `size` | `int` | Query | No | `10` | Page size; defaults to 10 and must be positive. |
+
+##### List Item — `PinLockHistoryListItem`
+
+| Field | Type | Sample Value | Definition |
+| --- | --- | --- | --- |
+| `id` | `UUID` | `550e8400-e29b-41d4-a716-446655440001` | Local history record UUID. |
+| `accountId` | `UUID` | `550e8400-e29b-41d4-a716-446655440000` | Local management account UUID. |
+| `lockType` | `PinLockHistory.LockType` | `Permenant` | Event type: `Temporary`, `Permenant`, or `Released`. |
+| `lockAt` | `Instant` | `2026-11-22T06:30:00Z` | Event time from Auth Server. |
+| `lockedUntil` | `Instant (nullable)` | `2026-11-22T06:45:00Z` | Temporary lock expiration instant; null for permanent lock and release events. |
+| `requestedBy` | `String (nullable)` | `management-profile-id` | Management profile that requested the permanent unlock; null for automatic lock events. |
+| `name` | `String` | `Alice` | Account name. |
+| `email` | `String` | `alice@example.com` | Account email. |
+| `phone` | `String` | `09123456789` | Account phone. |
+
+```bash
+curl --get "${BASE_URL}/api/accounts/pin-lock" \
+  -H "Authorization: Bearer ${MANAGEMENT_TOKEN}" \
+  --data-urlencode 'lockType=Permenant' \
+  --data-urlencode 'dateFrom=2026-11-01' \
+  --data-urlencode 'dateTo=2026-11-30' \
+  --data-urlencode 'keyword=alice' \
+  --data-urlencode 'page=0' \
+  --data-urlencode 'size=10'
+```
+
+The response is a `Page<PinLockHistoryListItem>` with the standard page metadata described above. No matching records returns an empty `content` list.
 
 ### Client System
 
