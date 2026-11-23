@@ -21,6 +21,9 @@ public class KafkaProps {
     @Valid
     private PinLock pinLock = new PinLock();
 
+    @Valid
+    private Account account = new Account();
+
     @Data
     public static class PinLock {
         @NotBlank
@@ -34,5 +37,14 @@ public class KafkaProps {
     public static class Outbox {
         @Min(1)
         private long fixedDelay = 1000;
+    }
+
+    @Data
+    public static class Account {
+        @NotBlank
+        private String approvedTopic = "consumer-account-approved.v1";
+
+        @NotBlank
+        private String rejectedTopic = "consumer-account-rejected.v1";
     }
 }

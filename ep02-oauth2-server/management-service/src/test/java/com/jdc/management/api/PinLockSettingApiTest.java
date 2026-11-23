@@ -45,7 +45,7 @@ class PinLockSettingApiTest {
     void createsSettingsAndMapsCorrectedFieldNames() throws Exception {
         mvc.perform(post(URL + "/Consumer").contentType(MediaType.APPLICATION_JSON).content(FORM))
                 .andExpect(status().isOk());
-        verify(repository).save(argThat(setting -> setting.getSystem().equals("Consumer")
+        verify(repository).saveAndFlush(argThat(setting -> setting.getSystem().equals("Consumer")
                 && setting.getTempLockFailsCount() == 3 && setting.getTempLockWailtMinutes() == 15
                 && setting.getPermenantLockFailsCount() == 9 && !setting.isDeleted()));
     }
@@ -70,7 +70,7 @@ class PinLockSettingApiTest {
         when(repository.findById("Consumer")).thenReturn(Optional.of(entity));
         mvc.perform(put(URL + "/Consumer").contentType(MediaType.APPLICATION_JSON).content(FORM))
                 .andExpect(status().isOk());
-        verify(repository).save(argThat(setting -> setting == entity && setting.getPermenantLockFailsCount() == 9));
+        verify(repository).saveAndFlush(argThat(setting -> setting == entity && setting.getPermenantLockFailsCount() == 9));
     }
 
     @Test

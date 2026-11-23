@@ -69,6 +69,18 @@ class LoginTicketServiceTest {
 		assertNull(ticket.getConsumedAt());
 	}
 
+	@Test void issuesRestrictedTicketOnlyForPendingConsumerProfiles() {
+		profile.setStatus(Profile.Status.Pending);
+		var result = service.issueOnboarding(profile, "consumer-demo");
+		var captor = ArgumentCaptor.forClass(LoginTicket.class);
+		verify(repo).save(captor.capture());
+		assertTrue(captor.getValue().isOnboarding());
+		assertThrows(IllegalArgumentException.class, () -> service.issue(profile, "consumer-demo"));
+		profile.setSystem("Management");
+		assertThrows(IllegalArgumentException.class, () -> service.issueOnboarding(profile, "consumer-demo"));
+		assertEquals(60, result.expiresIn());
+	}
+
 	@Test void acceptsAdministratorTicketOnlyForItsManagementClient() {
 		var settings = AuthTestProperties.create();
 		settings.setClients(Map.of("management-demo", client("Management"), "consumer-demo", client("Consumer")));
@@ -87,7 +99,9 @@ class LoginTicketServiceTest {
 	private static AuthenticationProps.Client client(String system) {
 		var client = new AuthenticationProps.Client();
 		client.setSystem(system);
-		client.setScopes(Set.of(system.toLowerCase(Locale.ROOT) + ".api"));
+		client.setScopes("Consumer".equals(system)
+				? Set.of("consumer.api", "consumer.onboarding")
+				: Set.of(system.toLowerCase(Locale.ROOT) + ".api"));
 		client.setAudiences(List.of(system.toLowerCase(Locale.ROOT) + ".api"));
 		client.setSecret("Consumer".equals(system) ? "consumer-demo-secret" : "management-demo-secret");
 		return client;

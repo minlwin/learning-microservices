@@ -5,7 +5,7 @@ BEGIN;
 SET LOCAL ROLE csmuser;
 
 -- registration_type: Self=0, Management=1
--- status: Applied=0, Approved=1
+-- status: Applied=0, Approved=1, Rejected=2
 CREATE TABLE consumer.account (
     id UUID PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -17,8 +17,9 @@ CREATE TABLE consumer.account (
     status SMALLINT NOT NULL,
     registered_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     approved_at TIMESTAMP(6) WITH TIME ZONE,
+    rejected_at TIMESTAMP(6) WITH TIME ZONE,
     CONSTRAINT ck_account_registration_type CHECK (registration_type BETWEEN 0 AND 1),
-    CONSTRAINT ck_account_status CHECK (status BETWEEN 0 AND 1)
+    CONSTRAINT ck_account_status CHECK (status BETWEEN 0 AND 2)
 );
 
 -- @MapsId shares the account's UUID through the account_id primary key.

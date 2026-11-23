@@ -6,6 +6,7 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Set;
 
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPrivateKey;
@@ -127,11 +128,13 @@ public class AuthorizationServerConfig {
 
 	@Bean
 	public OAuth2AuthorizationService authorizationService(JdbcOperations jdbc, RegisteredClientRepository clients) {
-		// Allow the Long token_version and immutable lists used in JWT claims.
+		// Allow Long token versions, immutable collections used by JWT claims, and the
+		// singleton immutable set used for the restricted onboarding scope.
 		var allowedTypes = BasicPolymorphicTypeValidator.builder();
 		allowedTypes.allowIfSubType(Long.class);
 		allowedTypes.allowIfSubType(List.of("role").getClass());
 		allowedTypes.allowIfSubType(List.of().getClass());
+		allowedTypes.allowIfSubType(Set.of("consumer.onboarding").getClass());
 		var mapperBuilder = JsonMapper.builder();
 		mapperBuilder.addModules(SecurityJacksonModules.getModules(getClass().getClassLoader(), allowedTypes));
 		var mapper = mapperBuilder.build();
@@ -169,7 +172,14 @@ public class AuthorizationServerConfig {
 			var profile = profiles.findById(UUID.fromString(context.getPrincipal().getName()))
 					.orElseThrow(() -> new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT));
 			String system = context.getRegisteredClient().getClientSettings().getSetting("app.system");
-			if (profile.getStatus() != Profile.Status.Active || !ProfileAccess.allows(system, profile, properties)) {
+			var onboardingGrant = context.getAuthorizationGrantType() != null
+					&& LoginTicketGrantToken.GRANT_TYPE.equals(context.getAuthorizationGrantType())
+					&& context.getAuthorizationGrant() instanceof LoginTicketGrantToken grant
+					&& grant.isOnboarding();
+			if ((!onboardingGrant && profile.getStatus() != Profile.Status.Active)
+					|| (onboardingGrant && profile.getStatus() != Profile.Status.Pending)
+					|| !ProfileAccess.allows(system, profile, properties)
+					|| (onboardingGrant && !context.getAuthorizedScopes().equals(java.util.Set.of("consumer.onboarding")))) {
 				throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
 			}
 			long expectedVersion;

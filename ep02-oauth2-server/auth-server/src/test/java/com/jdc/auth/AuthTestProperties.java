@@ -20,12 +20,19 @@ public final class AuthTestProperties {
 		var registration = new AuthenticationProps.ProfileDefaults();
 		registration.setSystem("Consumer");
 		registration.setRole("Consumer");
+		registration.setClientId("consumer-demo");
 		properties.setRegistration(registration);
 		var activation = new AuthenticationProps.ProfileDefaults();
 		activation.setSystem("Management");
 		activation.setRole("Management");
 		properties.setActivation(activation);
 		properties.setSystems(Map.of("Consumer", system("Consumer"), "Management", system("Management", "Administrator")));
+		var client = new AuthenticationProps.Client();
+		client.setSystem("Consumer");
+		client.setScopes(Set.of("consumer.api", "consumer.onboarding"));
+		client.setAudiences(List.of("consumer.api"));
+		client.setSecret("consumer-demo-secret");
+		properties.setClients(Map.of("consumer-demo", client));
 	}
 
 	public static AuthenticationProps.SystemDefinition system(String... roles) {

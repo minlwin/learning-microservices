@@ -2,6 +2,7 @@ package com.jdc.auth.security;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.Set;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -43,9 +44,10 @@ public class LoginTicketGrantProvider implements AuthenticationProvider {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
 		}
 		grant.setTokenVersion(login.tokenVersion());
+		grant.setOnboarding(login.onboarding());
 		var principal = UsernamePasswordAuthenticationToken.authenticated(login.profileId().toString(), null,
 				List.of());
-		var scopes = registered.getScopes();
+		var scopes = login.onboarding() ? Set.of("consumer.onboarding") : registered.getScopes();
 		var context = DefaultOAuth2TokenContext.builder().registeredClient(registered).principal(principal)
 				.authorizationServerContext(AuthorizationServerContextHolder.getContext()).authorizedScopes(scopes)
 				.authorizationGrantType(LoginTicketGrantToken.GRANT_TYPE).authorizationGrant(grant);
@@ -64,11 +66,15 @@ public class LoginTicketGrantProvider implements AuthenticationProvider {
 		} else {
 			authorization.accessToken(access);
 		}
-		var token = generator.generate(context.tokenType(OAuth2TokenType.REFRESH_TOKEN).build());
-		if (!(token instanceof OAuth2RefreshToken refresh)) {
-			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.SERVER_ERROR);
+		OAuth2RefreshToken refresh = null;
+		if (!login.onboarding()) {
+			var token = generator.generate(context.tokenType(OAuth2TokenType.REFRESH_TOKEN).build());
+			if (!(token instanceof OAuth2RefreshToken refreshToken)) {
+				throw new OAuth2AuthenticationException(OAuth2ErrorCodes.SERVER_ERROR);
+			}
+			refresh = refreshToken;
+			authorization.refreshToken(refresh);
 		}
-		authorization.refreshToken(refresh);
 		authorizations.save(authorization.build());
 		return new OAuth2AccessTokenAuthenticationToken(registered, client, access, refresh);
 	}

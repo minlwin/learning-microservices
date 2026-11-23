@@ -14,17 +14,24 @@ import com.jdc.consumer.api.management.input.ConsumerRegistrationForm;
 import com.jdc.consumer.api.management.output.ConsumerAccountListItem;
 import com.jdc.consumer.api.mobile.input.SelfRegistrationForm;
 import com.jdc.consumer.api.mobile.output.ConsumerProfile;
+import com.jdc.consumer.event.ConsumerAccountApproved;
+import com.jdc.consumer.event.ConsumerAccountRejected;
 import com.jdc.consumer.exceptions.BusinessRuleViolationException;
 import com.jdc.consumer.exceptions.ResourceNotFoundException;
 import com.jdc.consumer.model.entity.Account;
 import com.jdc.consumer.model.entity.AccountAccess;
 import com.jdc.consumer.model.entity.AccountLockStatus;
+import com.jdc.consumer.model.entity.OutboxEvent;
 import com.jdc.consumer.model.query.ConsumerAccountQuery;
 import com.jdc.consumer.model.repo.AccountAccessRepo;
 import com.jdc.consumer.model.repo.AccountLockStatusRepo;
 import com.jdc.consumer.model.repo.AccountRepo;
+import com.jdc.consumer.model.repo.OutboxEventRepo;
+import com.jdc.consumer.props.KafkaProps;
 
 import lombok.RequiredArgsConstructor;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -33,7 +40,11 @@ public class ConsumerAccountService {
     private final AccountRepo accounts;
     private final AccountAccessRepo accesses;
     private final AccountLockStatusRepo locks;
+    private final OutboxEventRepo outboxEvents;
     private final ConsumerAccountQuery accountQuery;
+    private final AuthConsumerProfileCheckService authProfileCheck;
+    private final KafkaProps kafkaProperties;
+    private final ObjectMapper objectMapper;
 
     /**
      * Date filters represent inclusive UTC calendar dates.
@@ -53,26 +64,18 @@ public class ConsumerAccountService {
 
     @Transactional
     public void register(ConsumerRegistrationForm form) {
-        // TODO: Before management registration, call auth-server
-        // POST /api/internal/profiles/email/check with this email and system=Consumer
-        // using subsystem credentials authorized through email-check-systems. An
-        // identity in
-        // another system is allowed. This check is advisory; enforce uniqueness again
-        // when the auth server creates the profile to handle concurrent registrations.
+        if (accounts.existsByEmail(form.email())) {
+            throw new BusinessRuleViolationException("A consumer account already exists for this email address.");
+        }
+
+        authProfileCheck.requireNoConsumerProfile(form.email());
         register(form.name(), form.email(), form.phone(), form.dob(), form.address(),
                 Account.RegistrationType.Management);
-        // TODO: Reliably publish ConsumerRegisteredByManagement after this transaction
-        // commits (for example, through an outbox). Include event ID, consumer account
-        // ID, email, and system=Consumer; never include credentials. This event creates
-        // a CONSUMER invitation, not a Management-system user.
     }
 
     @Transactional
     public void register(SelfRegistrationForm form) {
-        // Self-registration follows auth-server email verification and profile/password
-        // initialization. The controller binds the email to the authenticated identity.
-        // TODO: Support a restricted onboarding token for Pending auth profiles so they
-        // can submit consumer information without gaining approved-account permissions.
+        authProfileCheck.requirePendingConsumerProfile(form.email());
         register(form.name(), form.email(), form.phone(), form.dob(), form.address(), Account.RegistrationType.Self);
     }
 
@@ -93,11 +96,22 @@ public class ConsumerAccountService {
 
         account.setStatus(Account.Status.Approved);
         account.setApprovedAt(Instant.now());
-        // Managed entity changes are flushed by the transaction.
-        // Auth activation is a separate workflow.
+        recordApprovalEvent(account);
     }
 
-    private void register(String name, String email, String phone, LocalDate dob, String address,
+    @Transactional
+    public void reject(UUID id) {
+        var account = accounts.findForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("No consumer account was found for the provided ID."));
+        if (account.getStatus() != Account.Status.Applied) {
+            throw new BusinessRuleViolationException("Only an applied consumer account can be rejected.");
+        }
+        account.setStatus(Account.Status.Rejected);
+        account.setRejectedAt(Instant.now());
+        recordRejectionEvent(account);
+    }
+
+    private Account register(String name, String email, String phone, LocalDate dob, String address,
             Account.RegistrationType type) {
         if (accounts.existsByEmail(email)) {
             throw new BusinessRuleViolationException("A consumer account already exists for this email address.");
@@ -127,5 +141,48 @@ public class ConsumerAccountService {
         lock.setStatusChangeAt(now);
         locks.save(lock);
         account.setLockStatus(lock);
+        return account;
+    }
+
+    private void recordApprovalEvent(Account account) {
+        var event = new ConsumerAccountApproved(
+                UUID.randomUUID(), account.getId(), account.getEmail(), "Consumer", account.getRegistrationType().name());
+        var outboxEvent = new OutboxEvent();
+        outboxEvent.setId(event.eventId());
+        outboxEvent.setTopic(kafkaProperties.getAccount().getApprovedTopic());
+        outboxEvent.setAggregateKey(account.getId().toString());
+        outboxEvent.setPayload(serialize(event));
+        outboxEvent.setCreatedAt(Instant.now());
+        outboxEvent.setAttemptCount(0);
+        outboxEvents.save(outboxEvent);
+    }
+
+    private void recordRejectionEvent(Account account) {
+        var event = new ConsumerAccountRejected(
+                UUID.randomUUID(), account.getId(), account.getEmail(), "Consumer", account.getRegistrationType().name());
+        var outboxEvent = new OutboxEvent();
+        outboxEvent.setId(event.eventId());
+        outboxEvent.setTopic(kafkaProperties.getAccount().getRejectedTopic());
+        outboxEvent.setAggregateKey(account.getId().toString());
+        outboxEvent.setPayload(serialize(event));
+        outboxEvent.setCreatedAt(Instant.now());
+        outboxEvent.setAttemptCount(0);
+        outboxEvents.save(outboxEvent);
+    }
+
+    private String serialize(ConsumerAccountApproved event) {
+        try {
+            return objectMapper.writeValueAsString(event);
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("Could not serialize the Consumer account approval event.", exception);
+        }
+    }
+
+    private String serialize(ConsumerAccountRejected event) {
+        try {
+            return objectMapper.writeValueAsString(event);
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("Could not serialize the Consumer account rejection event.", exception);
+        }
     }
 }

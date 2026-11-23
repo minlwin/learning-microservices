@@ -36,14 +36,16 @@ CREATE TABLE auth.registration (
     email VARCHAR(255) NOT NULL,
     registered_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     initialized_at TIMESTAMP(6) WITH TIME ZONE,
-    otp_code VARCHAR(255) NOT NULL,
-    status SMALLINT NOT NULL,
-    send_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
-    expire_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    account_approved BOOLEAN NOT NULL DEFAULT FALSE,
+    invitation_expires_at TIMESTAMP(6) WITH TIME ZONE,
+    otp_code VARCHAR(255),
+    status SMALLINT,
+    send_at TIMESTAMP(6) WITH TIME ZONE,
+    expire_at TIMESTAMP(6) WITH TIME ZONE,
     checked_at TIMESTAMP(6) WITH TIME ZONE,
-    send_count INTEGER NOT NULL,
-    fail_count INTEGER NOT NULL,
-    CONSTRAINT ck_registration_otp_status CHECK (status BETWEEN 0 AND 2)
+    send_count INTEGER NOT NULL DEFAULT 0,
+    fail_count INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT ck_registration_otp_status CHECK (status IS NULL OR status BETWEEN 0 AND 2)
 );
 
 -- An activation may exist before its embedded OTP record is initialized.
@@ -68,6 +70,7 @@ CREATE TABLE auth.login_ticket (
     profile_id UUID NOT NULL REFERENCES auth.profile (id),
     client_id VARCHAR(255) NOT NULL,
     token_version BIGINT NOT NULL DEFAULT 0,
+    onboarding BOOLEAN NOT NULL DEFAULT FALSE,
     expires_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     consumed_at TIMESTAMP(6) WITH TIME ZONE
 );
@@ -131,6 +134,19 @@ CREATE TABLE auth.outbox_event (
 
 CREATE INDEX ix_auth_outbox_event_pending
     ON auth.outbox_event (published_at, created_at);
+
+CREATE TABLE auth.email_outbox_event (
+    id UUID PRIMARY KEY,
+    recipient VARCHAR(255) NOT NULL,
+    invitation_url VARCHAR(2048) NOT NULL,
+    created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    sent_at TIMESTAMP(6) WITH TIME ZONE,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
+);
+
+CREATE INDEX ix_auth_email_outbox_pending
+    ON auth.email_outbox_event (sent_at, created_at);
 
 -- Spring Security JDBC repositories (PostgreSQL-compatible types).
 CREATE TABLE auth.oauth2_registered_client (

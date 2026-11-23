@@ -18,6 +18,9 @@ import com.jdc.auth.api.input.InitializationForm;
 import com.jdc.auth.api.input.OtpForm;
 import com.jdc.auth.exceptions.BusinessRuleViolationException;
 import com.jdc.auth.exceptions.OtpVerificationException;
+import com.jdc.auth.api.output.AuthenticationResult;
+import com.jdc.auth.model.entity.Identity;
+import com.jdc.auth.model.entity.Profile;
 import com.jdc.auth.model.entity.Registration;
 import com.jdc.auth.model.entity.dto.OtpRecord;
 import com.jdc.auth.model.entity.dto.OtpRecord.CheckStatus;
@@ -25,7 +28,9 @@ import com.jdc.auth.model.repo.*;
 
 class RegistrationServiceTest {
 	private final RegistrationRepo registrations = mock(RegistrationRepo.class);
+	private final IdentityRepo identities = mock(IdentityRepo.class);
 	private final ProfileRepo profiles = mock(ProfileRepo.class);
+	private final LoginTicketService loginTickets = mock(LoginTicketService.class);
 	private final PasswordEncoder encoder = mock(PasswordEncoder.class);
 	private final OtpCodeService mail = mock(OtpCodeService.class);
 	private RegistrationService service;
@@ -34,8 +39,9 @@ class RegistrationServiceTest {
 
 	@BeforeEach
 	void setup() {
-		service = new RegistrationService(AuthTestProperties.create(), new OtpCodeProps(), encoder, mock(EmailValidationService.class), mail,
-				registrations, mock(IdentityRepo.class), profiles);
+		service = new RegistrationService(AuthTestProperties.create(), new OtpCodeProps(), encoder,
+				mock(EmailValidationService.class), mail, registrations, identities, profiles,
+				loginTickets, mock(EmailOutboxEventRepo.class));
 
 
 
@@ -98,5 +104,36 @@ class RegistrationServiceTest {
 		assertThrows(BusinessRuleViolationException.class,
 				() -> service.initialize(registration.getId(), new InitializationForm("password")));
 		verifyNoInteractions(profiles);
+	}
+
+	@Test
+	void initializesPendingSelfRegistrationAndReturnsOnboardingTicket() {
+		registration.setEmail("consumer@example.com");
+		otp.setStatus(CheckStatus.Success);
+		var identity = new Identity();
+		identity.setUsername(registration.getEmail());
+		when(identities.findOneByUsername(registration.getEmail())).thenReturn(Optional.of(identity));
+		when(profiles.existsByIdentityAndSystem(identity, "Consumer")).thenReturn(false);
+		when(encoder.encode("password")).thenReturn("encoded-password");
+		var profile = new Profile();
+		profile.setId(UUID.randomUUID());
+		when(profiles.save(any(Profile.class))).thenAnswer(invocation -> {
+			var saved = invocation.getArgument(0, Profile.class);
+			saved.setId(profile.getId());
+			return saved;
+		});
+		when(loginTickets.issueOnboarding(any(Profile.class), eq("consumer-demo")))
+				.thenReturn(new AuthenticationResult("one-time-ticket", 60));
+
+		var result = service.initialize(registration.getId(), new InitializationForm("password"));
+
+		assertEquals(profile.getId(), result.id());
+		assertEquals("one-time-ticket", result.loginTicket());
+		assertEquals(60, result.expiresIn());
+		var profileCaptor = org.mockito.ArgumentCaptor.forClass(Profile.class);
+		verify(profiles).save(profileCaptor.capture());
+		assertEquals(Profile.Status.Pending, profileCaptor.getValue().getStatus());
+		assertNotNull(registration.getInitializedAt());
+		verify(loginTickets).issueOnboarding(profileCaptor.getValue(), "consumer-demo");
 	}
 }

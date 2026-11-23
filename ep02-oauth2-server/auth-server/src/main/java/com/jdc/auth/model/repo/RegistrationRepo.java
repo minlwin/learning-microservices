@@ -17,4 +17,6 @@ public interface RegistrationRepo extends JpaRepository<Registration, UUID>{
 
 	int countByEmail(String email);
 
+	boolean existsById(UUID id);
+
 }

@@ -89,7 +89,7 @@ class BaseRepositoryImplTest {
 
 	@Test
 	void searchesAccountsWithMatchingProjectionAndCountFilters() {
-		var service = new ConsumerAccountService(repository, null, null, new ConsumerAccountQuery());
+		var service = new ConsumerAccountService(repository, null, null, null, new ConsumerAccountQuery(), null, null, null);
 		var date = LocalDate.of(2026, 11, 21);
 		var form = new ConsumerAccountSearch(Account.Status.Applied, Account.RegistrationType.Self, date, date, "a");
 		var result = service.search(form, 0, 1);

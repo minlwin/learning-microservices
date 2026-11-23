@@ -38,6 +38,30 @@ public class OtpCodeService {
 		return send(email, "activation", expirationMinutes);
 	}
 
+	public void sendRegistrationInvitation(String email, String invitationUrl) {
+		var message = mailSender.createMimeMessage();
+		try {
+			var helper = new MimeMessageHelper(message, StandardCharsets.UTF_8.name());
+			helper.setFrom(from);
+			helper.setTo(email);
+			helper.setSubject("Complete your Consumer account registration");
+			helper.setText("""
+				<!DOCTYPE html>
+				<html lang="en">
+				<body>
+				  <h1>Complete your Consumer account registration</h1>
+				  <p>Your Consumer account has been approved. Use the link below to verify your email and set your password.</p>
+				  <p><a href="%s">Continue registration</a></p>
+				  <p>If you did not expect this message, please contact support.</p>
+				</body>
+				</html>
+				""".formatted(invitationUrl), true);
+		} catch (MessagingException exception) {
+			throw new MailPreparationException("Could not prepare Consumer invitation email.", exception);
+		}
+		mailSender.send(message);
+	}
+
 	private String send(String email, String purpose, int expirationMinutes) {
 		var code = generate();
 		var message = mailSender.createMimeMessage();

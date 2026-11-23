@@ -478,6 +478,7 @@ Client and resource credentials are separate. See [consumer-service](../consumer
 | Token | POST | `/oauth2/token` | Exchange a ticket or refresh tokens. |
 | Logout | POST | `/api/logout` | Invalidate tokens and tickets for the authenticated profile. |
 | Registration | POST | `/api/registration` | Register email and send OTP. |
+| Registration | POST | `/api/registration/{id}/otp/request` | Request the first OTP for a management invitation. |
 | Registration | POST | `/api/registration/{id}/otp/validate` | Validate OTP. |
 | Registration | POST | `/api/registration/{id}/otp/resend` | Resend OTP. |
 | Registration | POST | `/api/registration/{id}/initialize` | Initialize the Consumer password. |
@@ -647,7 +648,7 @@ HTTP/1.1 200 OK
 
 ### Consumer registration
 
-Register email, read OTP in Mailpit, verify it, and initialize a password. Initialization creates a Pending Consumer profile under the default policy; it cannot authenticate until activated. Automatic KYC approval/activation is not implemented.
+Self-registration creates a Pending Consumer profile after email verification and password initialization. Initialization returns a short-lived, one-time login ticket that can be exchanged for a restricted onboarding access token. That token can submit registration information to Consumer Service; it cannot call the ordinary Consumer API. Management approval activates the profile through the Consumer account approval event.
 
 #### Register email
 
@@ -743,6 +744,14 @@ HTTP/1.1 200 OK
 
 ```
 
+#### Request invitation OTP
+
+Management-created Consumer accounts are already Approved in Consumer Service before Auth Server creates an invitation. The invitation email links to the configured `app.auth.consumer-invitation-url` route with the registration UUID. The client page should call the following endpoint to send the first OTP; subsequent requests are subject to the resend interval and cooldown rules.
+
+`POST /api/registration/{id}/otp/request`
+
+Request body: none. The endpoint only accepts an unexpired, unused management invitation. Invitations expire after `app.auth.consumer-invitation-lifetime` (7 days by default). OTP validation and initialization use the same endpoints described above. Management invitation initialization creates an Active profile and therefore returns no onboarding ticket.
+
 #### Initialize password
 
 `POST /api/registration/{id}/initialize`
@@ -770,14 +779,20 @@ curl -X POST "${BASE_URL}/api/registration/${REGISTRATION_ID}/initialize" \
 | Field | Type | Sample Value | Definition |
 | --- | --- | --- | --- |
 | `id` | `UUID` | `7b16b09f-a949-4b74-a7e3-87b9c7d32202` | Created auth-profile UUID; distinct from registration/activation and subsystem account IDs. |
+| `loginTicket` | `String (nullable)` | `eyJ...` | One-time ticket for a self-registration Pending profile; null for an approved management invitation. |
+| `expiresIn` | `long` | `60` | Ticket lifetime in seconds; `0` when there is no ticket. |
 
 Response: `200 OK`, `application/json`.
 
 ```json
 {
-  "id": "7b16b09f-a949-4b74-a7e3-87b9c7d32202"
+  "id": "7b16b09f-a949-4b74-a7e3-87b9c7d32202",
+  "loginTicket": "one-time-ticket-value",
+  "expiresIn": 60
 }
 ```
+
+The self-registration client exchanges `loginTicket` using the configured `consumer-demo` client and the custom login-ticket grant, then sends the returned access token to `POST /api/mobile/registration`. The onboarding token has only the `consumer.onboarding` scope, has no refresh token, and cannot be used after Consumer approval changes the profile to Active. The mobile flow must obtain a normal login token after approval.
 
 ### Management activation
 
@@ -1024,7 +1039,7 @@ No matching profile returns:
 }
 ```
 
-Pending, Active, Locked, and Closed profiles count as existing. An identity used only in another system, or registration/activation records without a profile, does not count. This check does not reserve an email; final initialization must enforce uniqueness. Management-service calls it before account creation; the corresponding Consumer-service precheck remains a TODO. Invitation events remain unimplemented.
+Pending, Active, Locked, and Closed profiles count as existing. An identity used only in another system, or registration/activation records without a profile, does not count. This check does not reserve an email; final initialization must enforce uniqueness. Management Service and Consumer Service call it before account creation; the final profile constraint enforces uniqueness across concurrent requests. Consumer approval and rejection events are consumed from versioned Kafka topics. Management-created Consumer invitations are written to an email outbox and retried until the mail send succeeds.
 
 ## Error responses
 
@@ -1212,7 +1227,7 @@ Configuration registers the system and application; it does not create users. Be
 | `system` | `Merchant` | Must exactly match the configured system ID. |
 | `role` | `MerchantOperator` | Must belong to `systems.Merchant.roles`. |
 | `password` | BCrypt hash | Set through a trusted onboarding flow using the password encoder. |
-| `status` | `Active` | Pending, Locked, and Closed profiles cannot authenticate. |
+| `status` | `Active` | Normal authentication requires Active. Pending self-registration profiles can receive only the restricted, short-lived onboarding ticket until approval; Locked and Closed profiles cannot authenticate. |
 
 Existing onboarding targets can be changed through properties:
 
@@ -1336,7 +1351,7 @@ The tests use mocks, test security configurations, and embedded H2 for JDBC toke
 ## Current boundaries
 
 - Client registrations and OAuth authorizations use shared PostgreSQL storage. RSA signing keys are still generated at startup; persistent shared keys and key rotation remain necessary for a production signing-key lifecycle. Current internal introspection validates persisted token records rather than JWT signatures.
-- Auth Server consumes versioned PIN lock setting events from Management Service and stores the latest snapshot in `auth.pin_lock_setting`. Management Service uses a transactional outbox and a compacted topic. `PinLockActivityService` tracks PIN failures, applies temporary/permanent thresholds, releases temporary locks lazily on the next PIN operation, and publishes lock or permanent-unlock transitions through the auth outbox. Consumer and Management Services consume those transitions and keep idempotent local history. The current setting has no separate counting-window fields. The existing username/password login is separate; a PIN verifier must call `checkBeforePinAttempt`, `recordFailedAttempt`, and `recordSuccessfulAttempt` around its own PIN check. Other registration/account event workflows remain unimplemented.
+- Auth Server consumes versioned PIN lock setting events from Management Service and stores the latest snapshot in `auth.pin_lock_setting`. Management Service uses a transactional outbox and a compacted topic. `PinLockActivityService` tracks PIN failures, applies temporary/permanent thresholds, releases temporary locks lazily on the next PIN operation, and publishes lock or permanent-unlock transitions through the auth outbox. Consumer and Management Services consume those transitions and keep idempotent local history. Consumer account approvals and rejections also use transactional outboxes. Auth Server activates or closes Pending self-registration profiles and creates invitation registrations for management-created accounts. Invitation email delivery uses a retryable Auth Server outbox. The current PIN lock setting has no separate counting-window fields. The existing username/password login is separate; a PIN verifier must call `checkBeforePinAttempt`, `recordFailedAttempt`, and `recordSuccessfulAttempt` around its own PIN check.
 - Public API routes use a broad `/api/**` permit rule after the dedicated logout and internal security chains. New sensitive endpoints need explicit authorization rules.
 - Password initialization currently requires a nonblank password; a stronger password policy is not implemented.
 

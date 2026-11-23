@@ -21,6 +21,9 @@ public class KafkaProps {
     @Valid
     private PinLock pinLock = new PinLock();
 
+    @Valid
+    private ConsumerAccount consumerAccount = new ConsumerAccount();
+
     @Data
     public static class Outbox {
         @Min(1)
@@ -37,5 +40,20 @@ public class KafkaProps {
 
         @NotBlank
         private String consumerGroupId = "auth-server-pin-lock-settings";
+    }
+
+    @Data
+    public static class ConsumerAccount {
+        @NotBlank
+        private String approvedTopic = "consumer-account-approved.v1";
+
+        @NotBlank
+        private String approvedGroupId = "auth-server-consumer-account-approvals";
+
+        @NotBlank
+        private String rejectedTopic = "consumer-account-rejected.v1";
+
+        @NotBlank
+        private String rejectedGroupId = "auth-server-consumer-account-rejections";
     }
 }

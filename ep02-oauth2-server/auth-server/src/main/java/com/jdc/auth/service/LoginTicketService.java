@@ -22,13 +22,29 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class LoginTicketService {
-	public record AuthenticatedLogin(UUID profileId, long tokenVersion) { }
+	public record AuthenticatedLogin(UUID profileId, long tokenVersion, boolean onboarding) { }
 	private final LoginTicketRepo repo;
 	private final AuthenticationProps properties;
 	private final SecureRandom random = new SecureRandom();
 
 	@Transactional
 	public AuthenticationResult issue(Profile profile, String clientId) {
+		if (profile.getStatus() != Profile.Status.Active) {
+			throw new IllegalArgumentException("Regular login tickets are only available to Active profiles.");
+		}
+		return issue(profile, clientId, false);
+	}
+
+	@Transactional
+	public AuthenticationResult issueOnboarding(Profile profile, String clientId) {
+		if (profile.getStatus() != Profile.Status.Pending || !"Consumer".equals(profile.getSystem())
+				|| !"Consumer".equals(properties.systemForClient(clientId))) {
+			throw new IllegalArgumentException("Onboarding tickets are only available to Pending Consumer profiles.");
+		}
+		return issue(profile, clientId, true);
+	}
+
+	private AuthenticationResult issue(Profile profile, String clientId, boolean onboarding) {
 		long lifetime = properties.getTicketLifetimeSeconds();
 		if(lifetime <= 0) {
 			throw new IllegalStateException("Login ticket lifetime must be positive.");
@@ -40,6 +56,7 @@ public class LoginTicketService {
 		ticket.setTokenHash(hash(value));
 		ticket.setProfile(profile);
 		ticket.setTokenVersion(profile.getTokenVersion());
+		ticket.setOnboarding(onboarding);
 		ticket.setClientId(clientId);
 		ticket.setExpiresAt(Instant.now().plusSeconds(lifetime));
 		repo.save(ticket);
@@ -61,11 +78,13 @@ public class LoginTicketService {
 				|| !ticket.getClientId().equals(clientId) || system == null
 				|| ticket.getTokenVersion() != ticket.getProfile().getTokenVersion()
 				|| !ProfileAccess.allows(system, ticket.getProfile(), properties)
-				|| ticket.getProfile().getStatus() != Profile.Status.Active) {
+				|| (ticket.isOnboarding()
+						? ticket.getProfile().getStatus() != Profile.Status.Pending || !"Consumer".equals(system)
+						: ticket.getProfile().getStatus() != Profile.Status.Active)) {
 			throw invalidTicket();
 		}
 		ticket.setConsumedAt(Instant.now());
-		return new AuthenticatedLogin(ticket.getProfile().getId(), ticket.getTokenVersion());
+		return new AuthenticatedLogin(ticket.getProfile().getId(), ticket.getTokenVersion(), ticket.isOnboarding());
 	}
 
 	private BadCredentialsException invalidTicket() {

@@ -28,6 +28,11 @@ public class Registration {
 	private Instant registeredAt;
 	
 	private Instant initializedAt;
+
+	@Column(nullable = false)
+	private boolean accountApproved;
+
+	private Instant invitationExpiresAt;
 	
 	@Embedded
 	private OtpRecord otpRecord = new OtpRecord();

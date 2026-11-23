@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -150,6 +151,7 @@ class HistoryServicesTest {
 
 	private void lockHistory(Account account, String at) {
 		var history = new PinLockHistory();
+		history.setEventId(UUID.randomUUID());
 		history.setAccount(account);
 		history.setLockType(PinLockHistory.LockType.Temporary);
 		history.setLockAt(Instant.parse(at));

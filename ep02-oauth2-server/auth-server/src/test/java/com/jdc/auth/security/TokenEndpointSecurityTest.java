@@ -2,45 +2,76 @@ package com.jdc.auth.security;
 
 import com.jayway.jsonpath.JsonPath;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.junit.jupiter.api.*;
-import org.springframework.context.annotation.*;
-import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.web.FilterChainProxy;
+
+import org.hamcrest.Matchers;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
+import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
+import org.springframework.security.web.FilterChainProxy;
 import org.springframework.mock.web.MockServletContext;
+import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
-import org.springframework.web.bind.annotation.*;
-import com.jdc.auth.*;
-import org.hamcrest.Matchers;
-import org.springframework.jdbc.core.JdbcOperations;
-import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
-import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.jdc.auth.AuthTestProperties;
+import com.jdc.auth.AuthorizationServerConfig;
+import com.jdc.auth.JdbcTestSupport;
+import com.jdc.auth.SecurityConfig;
+import com.jdc.auth.SessionSecurityConfig;
 import com.jdc.auth.model.entity.Profile;
 import com.jdc.auth.model.entity.Identity;
 import com.jdc.auth.model.repo.ProfileRepo;
+import com.jdc.auth.model.repo.IdentityRepo;
 import com.jdc.auth.props.AuthenticationProps;
-import com.jdc.auth.AuthTestProperties;
+import com.jdc.auth.api.secured.LogoutApi;
+import com.jdc.auth.api.secured.EmailCheckApi;
+import com.jdc.auth.api.secured.TokenIntrospectionApi;
+import com.jdc.auth.exceptions.handler.ExceptionHandlers;
+import com.jdc.auth.service.EmailCheckService;
 import com.jdc.auth.service.LoginTicketService;
 import com.jdc.auth.service.LogoutService;
 import com.jdc.auth.service.TokenValidationService;
-import com.jdc.auth.api.secured.LogoutApi;
-import com.jdc.auth.api.secured.EmailCheckApi;
-import com.jdc.auth.service.EmailCheckService;
-import com.jdc.auth.api.secured.TokenIntrospectionApi;
-import com.jdc.auth.exceptions.handler.ExceptionHandlers;
 
 class TokenEndpointSecurityTest {
-	
+
 	@Configuration
 	@EnableWebSecurity
 	@EnableWebMvc
@@ -53,6 +84,11 @@ class TokenEndpointSecurityTest {
 		@Bean
 		ProfileRepo profiles() {
 			return mock(ProfileRepo.class);
+		}
+
+		@Bean
+		IdentityRepo identities() {
+			return mock(IdentityRepo.class);
 		}
 
 		@Bean
@@ -69,10 +105,12 @@ class TokenEndpointSecurityTest {
 			var merchant = client("Merchant");
 			merchant.setScopes(Set.of("orders.read", "payments.write"));
 			merchant.setAudiences(List.of("orders.api", "payments.api"));
-			properties.setClients(
-					Map.of("consumer-demo", client("Consumer"), "management-demo", client("Management"), "merchant-demo", merchant));
-			properties.setResources(Map.of(
-					"consumer-service", AuthTestProperties.resource("consumer-resource-secret", "consumer.api", "management.api"),
+			var consumer = client("Consumer");
+			consumer.setScopes(Set.of("consumer.api", "consumer.onboarding"));
+			properties.setClients(Map.of("consumer-demo", consumer, "management-demo", client("Management"),
+					"merchant-demo", merchant));
+			properties.setResources(Map.of("consumer-service",
+					AuthTestProperties.resource("consumer-resource-secret", "consumer.api", "management.api"),
 					"management-service", AuthTestProperties.resource("management-resource-secret", "management.api"),
 					"orders-service", AuthTestProperties.resource("orders-secret", "orders.api")));
 			properties.getResources().get("consumer-service").setEmailCheckSystems(Set.of("Consumer"));
@@ -103,7 +141,8 @@ class TokenEndpointSecurityTest {
 		context = new AnnotationConfigWebApplicationContext();
 		context.setServletContext(new MockServletContext());
 		context.register(Config.class, SecurityConfig.class, AuthorizationServerConfig.class, ExceptionHandlers.class,
-				SessionSecurityConfig.class, TokenValidationService.class, LogoutService.class, LogoutApi.class, TokenIntrospectionApi.class, EmailCheckService.class, EmailCheckApi.class);
+				SessionSecurityConfig.class, TokenValidationService.class, LogoutService.class, LogoutApi.class,
+				TokenIntrospectionApi.class, EmailCheckService.class, EmailCheckApi.class);
 		context.refresh();
 		mvc = MockMvcBuilders.webAppContextSetup(context).addFilters(context.getBean(FilterChainProxy.class)).build();
 		profile = new Profile();
@@ -121,7 +160,7 @@ class TokenEndpointSecurityTest {
 			if (used.getAndSet(true)) {
 				throw new BadCredentialsException("Already used");
 			}
-			return new LoginTicketService.AuthenticatedLogin(profile.getId(), profile.getTokenVersion());
+			return new LoginTicketService.AuthenticatedLogin(profile.getId(), profile.getTokenVersion(), false);
 		});
 	}
 
@@ -136,8 +175,8 @@ class TokenEndpointSecurityTest {
 		mvc.perform(post("/api/ping")).andExpect(status().isForbidden());
 		String[] paths = { "/", "/login", "/logout", "/oauth2/authorize", "/oauth2/jwks", "/oauth2/introspect",
 				"/oauth2/revoke", "/oauth2/device_authorization", "/oauth2/device_verification", "/oauth2/par",
-				"/.well-known/oauth-authorization-server", "/.well-known/openid-configuration", "/userinfo", "/api/ping",
-				"/connect/logout", "/connect/register", "/oauth2/register", "/oauth2/token" };
+				"/.well-known/oauth-authorization-server", "/.well-known/openid-configuration", "/userinfo",
+				"/api/ping", "/connect/logout", "/connect/register", "/oauth2/register", "/oauth2/token" };
 		for (String path : paths) {
 			mvc.perform(get(path)).andExpect(status().isForbidden()).andExpect(header().doesNotExist("Location"));
 			if (!path.equals("/oauth2/token")) {
@@ -155,14 +194,12 @@ class TokenEndpointSecurityTest {
 						.param("login_ticket", "ticket"))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.access_token").isNotEmpty())
 				.andExpect(jsonPath("$.id_token").doesNotExist()).andReturn();
-		String refresh = JsonPath.read(result.getResponse().getContentAsString(),
-				"$.refresh_token");
+		String refresh = JsonPath.read(result.getResponse().getContentAsString(), "$.refresh_token");
 		var refreshed = mvc
 				.perform(post("/oauth2/token").header("Authorization", basic("consumer-demo", "consumer-demo-secret"))
 						.param("grant_type", "refresh_token").param("refresh_token", refresh))
 				.andExpect(status().isOk()).andReturn();
-		String next = JsonPath.read(refreshed.getResponse().getContentAsString(),
-				"$.refresh_token");
+		String next = JsonPath.read(refreshed.getResponse().getContentAsString(), "$.refresh_token");
 		assertNotEquals(refresh, next);
 		mvc.perform(post("/oauth2/token").header("Authorization", basic("consumer-demo", "consumer-demo-secret"))
 				.param("grant_type", "refresh_token").param("refresh_token", refresh))
@@ -177,6 +214,30 @@ class TokenEndpointSecurityTest {
 	}
 
 	@Test
+	void exchangesPendingProfileTicketForRestrictedOnboardingTokenWithoutRefresh() throws Exception {
+		profile.setStatus(Profile.Status.Pending);
+		when(tickets.consume("onboarding", "consumer-demo"))
+				.thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0, true));
+
+		var response = mvc
+				.perform(post("/oauth2/token").header("Authorization", basic("consumer-demo", "consumer-demo-secret"))
+						.param("grant_type", LoginTicketGrantToken.GRANT_TYPE.getValue())
+						.param("login_ticket", "onboarding"))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.scope").value("consumer.onboarding"))
+				.andExpect(jsonPath("$.refresh_token").doesNotExist()).andReturn();
+		String accessToken = JsonPath.read(response.getResponse().getContentAsString(), "$.access_token");
+		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
+				.header("Authorization", basic("consumer-service", "consumer-resource-secret"))
+				.param("token", accessToken)).andExpect(status().isOk()).andExpect(jsonPath("$.active").value(true))
+				.andExpect(jsonPath("$.scope").value("consumer.onboarding"));
+
+		profile.setStatus(Profile.Status.Active);
+		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
+				.header("Authorization", basic("consumer-service", "consumer-resource-secret"))
+				.param("token", accessToken)).andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
+	}
+
+	@Test
 	void requiresClientAuthenticationAndRejectsUnsupportedGrantTypes() throws Exception {
 		mvc.perform(post("/oauth2/token").header("Authorization", basic("consumer-demo", "wrong"))
 				.param("grant_type", LoginTicketGrantToken.GRANT_TYPE.getValue()).param("login_ticket", "ticket"))
@@ -187,7 +248,8 @@ class TokenEndpointSecurityTest {
 				.andExpect(jsonPath("$.error").value("unsupported_grant_type"));
 	}
 
-	@Test void logoutRevokesEveryDeviceButPreservesOtherProfilesAndAllowsFreshLogin() throws Exception {
+	@Test
+	void logoutRevokesEveryDeviceButPreservesOtherProfilesAndAllowsFreshLogin() throws Exception {
 		var profiles = context.getBean(ProfileRepo.class);
 		when(profiles.revokeTokens(eq(profile.getId()), anyLong())).thenAnswer(invocation -> {
 			long expected = invocation.getArgument(1);
@@ -197,7 +259,8 @@ class TokenEndpointSecurityTest {
 			profile.setTokenVersion(expected + 1);
 			return 1;
 		});
-		when(tickets.consume("second", "consumer-demo")).thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0));
+		when(tickets.consume("second", "consumer-demo"))
+				.thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0, false));
 		var first = exchange("consumer-demo", "consumer-demo-secret", "ticket");
 		var second = exchange("consumer-demo", "consumer-demo-secret", "second");
 		var management = new Profile();
@@ -206,7 +269,8 @@ class TokenEndpointSecurityTest {
 		management.setRole("Management");
 		management.setStatus(Profile.Status.Active);
 		when(profiles.findById(management.getId())).thenReturn(Optional.of(management));
-		when(tickets.consume("management", "management-demo")).thenReturn(new LoginTicketService.AuthenticatedLogin(management.getId(), 0));
+		when(tickets.consume("management", "management-demo"))
+				.thenReturn(new LoginTicketService.AuthenticatedLogin(management.getId(), 0, false));
 		var other = exchange("management-demo", "management-demo-secret", "management");
 		checkActive(second.get("access_token"), true);
 		mvc.perform(post("/api/logout").header("Authorization", "Bearer " + first.get("access_token")))
@@ -220,42 +284,47 @@ class TokenEndpointSecurityTest {
 					.param("grant_type", "refresh_token").param("refresh_token", token.get("refresh_token")))
 					.andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("invalid_grant"));
 		}
-		when(tickets.consume("fresh", "consumer-demo")).thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 1));
+		when(tickets.consume("fresh", "consumer-demo"))
+				.thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 1, false));
 		var fresh = exchange("consumer-demo", "consumer-demo-secret", "fresh");
 		checkActive(fresh.get("access_token"), true);
-		when(tickets.consume("stale", "consumer-demo")).thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0));
+		when(tickets.consume("stale", "consumer-demo"))
+				.thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0, false));
 		mvc.perform(post("/oauth2/token").header("Authorization", basic("consumer-demo", "consumer-demo-secret"))
 				.param("grant_type", LoginTicketGrantToken.GRANT_TYPE.getValue()).param("login_ticket", "stale"))
 				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("invalid_grant"));
 	}
 
-	@Test void requiresBearerForLogoutAndSeparateResourceCredentialsForIntrospection() throws Exception {
+	@Test
+	void requiresBearerForLogoutAndSeparateResourceCredentialsForIntrospection() throws Exception {
 		mvc.perform(post("/api/logout")).andExpect(status().isUnauthorized());
-		mvc.perform(post("/api/logout").header("Authorization", "Bearer invalid"))
-				.andExpect(status().isUnauthorized());
+		mvc.perform(post("/api/logout").header("Authorization", "Bearer invalid")).andExpect(status().isUnauthorized());
 		var token = exchange("consumer-demo", "consumer-demo-secret", "ticket");
 		mvc.perform(post("/api/logout").header("Authorization", "Bearer " + token.get("refresh_token")))
 				.andExpect(status().isUnauthorized());
 		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
-				.header("Authorization", "Bearer " + token.get("access_token")).param("token", token.get("access_token")))
-				.andExpect(status().isUnauthorized());
+				.header("Authorization", "Bearer " + token.get("access_token"))
+				.param("token", token.get("access_token"))).andExpect(status().isUnauthorized());
 		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
 				.header("Authorization", basic("consumer-service", "wrong")).param("token", token.get("access_token")))
 				.andExpect(status().isUnauthorized());
 		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
-				.header("Authorization", basic("management-service", "management-resource-secret")).param("token", token.get("access_token")))
-				.andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
+				.header("Authorization", basic("management-service", "management-resource-secret"))
+				.param("token", token.get("access_token"))).andExpect(status().isOk())
+				.andExpect(jsonPath("$.active").value(false));
 	}
 
-	@Test void administratorReceivesManagementAccessAndAdministratorRoleIncludingOnRefresh() throws Exception {
+	@Test
+	void administratorReceivesManagementAccessAndAdministratorRoleIncludingOnRefresh() throws Exception {
 		profile.setSystem("Management");
 		profile.setRole("Administrator");
-		when(tickets.consume("administrator", "management-demo")).thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0));
+		when(tickets.consume("administrator", "management-demo"))
+				.thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0, false));
 		var token = exchange("management-demo", "management-demo-secret", "administrator");
 		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
-				.header("Authorization", basic("management-service", "management-resource-secret")).param("token", token.get("access_token")))
-				.andExpect(status().isOk()).andExpect(jsonPath("$.active").value(true))
-				.andExpect(jsonPath("$.roles[0]").value("Administrator"))
+				.header("Authorization", basic("management-service", "management-resource-secret"))
+				.param("token", token.get("access_token"))).andExpect(status().isOk())
+				.andExpect(jsonPath("$.active").value(true)).andExpect(jsonPath("$.roles[0]").value("Administrator"))
 				.andExpect(jsonPath("$.username").value("alice@example.com"))
 				.andExpect(jsonPath("$.system").value("Management"))
 				.andExpect(jsonPath("$.aud[0]").value("management.api"));
@@ -279,15 +348,15 @@ class TokenEndpointSecurityTest {
 
 	@Test
 	void issuesRefreshesAndIntrospectsTokensForConfiguredSystemAndCustomRole() throws Exception {
-		profile.setSystem(new String("Merchant"));
+		profile.setSystem("Merchant");
 		profile.setRole("MerchantOperator");
 		when(tickets.consume("merchant-ticket", "merchant-demo"))
-				.thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0));
+				.thenReturn(new LoginTicketService.AuthenticatedLogin(profile.getId(), 0, false));
 		var tokens = exchange("merchant-demo", "management-demo-secret", "merchant-ticket");
 		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
-				.header("Authorization", basic("orders-service", "orders-secret")).param("token", tokens.get("access_token")))
-				.andExpect(status().isOk()).andExpect(jsonPath("$.active").value(true))
-				.andExpect(jsonPath("$.system").value("Merchant"))
+				.header("Authorization", basic("orders-service", "orders-secret"))
+				.param("token", tokens.get("access_token"))).andExpect(status().isOk())
+				.andExpect(jsonPath("$.active").value(true)).andExpect(jsonPath("$.system").value("Merchant"))
 				.andExpect(jsonPath("$.roles[0]").value("MerchantOperator"))
 				.andExpect(jsonPath("$.aud", Matchers.containsInAnyOrder("orders.api", "payments.api")));
 		mvc.perform(post("/oauth2/token").header("Authorization", basic("merchant-demo", "management-demo-secret"))
@@ -295,8 +364,9 @@ class TokenEndpointSecurityTest {
 				.andExpect(status().isOk());
 		profile.setRole("UnconfiguredRole");
 		mvc.perform(post("/api/internal/tokens/introspect").contentType("application/x-www-form-urlencoded")
-				.header("Authorization", basic("orders-service", "orders-secret")).param("token", tokens.get("access_token")))
-				.andExpect(status().isOk()).andExpect(jsonPath("$.active").value(false));
+				.header("Authorization", basic("orders-service", "orders-secret"))
+				.param("token", tokens.get("access_token"))).andExpect(status().isOk())
+				.andExpect(jsonPath("$.active").value(false));
 	}
 
 	@Test
@@ -304,14 +374,16 @@ class TokenEndpointSecurityTest {
 		String uri = "/api/internal/profiles/email/check";
 		String body = "{\"system\":\"Consumer\",\"email\":\"alice@example.com\"}";
 		mvc.perform(post(uri).contentType("application/json").content(body)).andExpect(status().isUnauthorized());
-		mvc.perform(post(uri).header("Authorization", "Bearer user-token").contentType("application/json").content(body))
+		mvc.perform(
+				post(uri).header("Authorization", "Bearer user-token").contentType("application/json").content(body))
 				.andExpect(status().isUnauthorized());
 		mvc.perform(post(uri).header("Authorization", basic("consumer-demo", "consumer-demo-secret"))
 				.contentType("application/json").content(body)).andExpect(status().isUnauthorized());
 		mvc.perform(post(uri).header("Authorization", basic("management-service", "management-resource-secret"))
 				.contentType("application/json").content(body)).andExpect(status().isForbidden());
 		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
-				.contentType("application/json").content(body.replace("Consumer", "Management"))).andExpect(status().isForbidden());
+				.contentType("application/json").content(body.replace("Consumer", "Management")))
+				.andExpect(status().isForbidden());
 		verify(context.getBean(ProfileRepo.class), never()).existsByIdentityUsernameAndSystem(anyString(), anyString());
 	}
 
@@ -320,25 +392,38 @@ class TokenEndpointSecurityTest {
 		String uri = "/api/internal/profiles/email/check";
 		String body = "{\"system\":\"Consumer\",\"email\":\"alice@example.com\"}";
 		var profiles = context.getBean(ProfileRepo.class);
-		when(profiles.existsByIdentityUsernameAndSystem("alice@example.com", "Consumer")).thenReturn(true, false);
+		var identities = context.getBean(IdentityRepo.class);
+		when(identities.findOneByUsername("alice@example.com")).thenReturn(Optional.of(profile.getIdentity()))
+				.thenReturn(Optional.empty());
+		when(profiles.findByIdentityUsernameAndSystem("alice@example.com", "Consumer"))
+				.thenReturn(Optional.of(profile)).thenReturn(Optional.empty());
 		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
 				.contentType("application/json").content(body)).andExpect(status().isOk())
-				.andExpect(jsonPath("$.exists").value(true)).andExpect(header().string("Cache-Control", "no-store"));
+				.andExpect(jsonPath("$.identityExists").value(true)).andExpect(jsonPath("$.profileExists").value(true))
+				.andExpect(jsonPath("$.profileStatus").value("Active"))
+				.andExpect(header().string("Cache-Control", "no-store"));
 		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
-				.contentType("application/json").content(body)).andExpect(status().isOk()).andExpect(jsonPath("$.exists").value(false));
+				.contentType("application/json").content(body)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.identityExists").value(false))
+				.andExpect(jsonPath("$.profileExists").value(false))
+				.andExpect(jsonPath("$.profileStatus").doesNotExist());
 		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
-				.contentType("application/json").content(body.replace("alice@example.com", "invalid"))).andExpect(status().isBadRequest());
+				.contentType("application/json").content(body.replace("alice@example.com", "invalid")))
+				.andExpect(status().isBadRequest());
 		mvc.perform(post(uri).header("Authorization", basic("consumer-service", "consumer-resource-secret"))
-				.contentType("application/json").content(body.replace("Consumer", ""))).andExpect(status().isBadRequest());
-		verify(profiles, times(2)).existsByIdentityUsernameAndSystem("alice@example.com", "Consumer");
+				.contentType("application/json").content(body.replace("Consumer", "")))
+				.andExpect(status().isBadRequest());
+		verify(identities, times(2)).findOneByUsername("alice@example.com");
+		verify(profiles, times(2)).findByIdentityUsernameAndSystem("alice@example.com", "Consumer");
 	}
 
 	private Map<String, String> exchange(String client, String secret, String ticket) throws Exception {
-		var response = mvc.perform(post("/oauth2/token").header("Authorization", basic(client, secret))
-				.param("grant_type", LoginTicketGrantToken.GRANT_TYPE.getValue()).param("login_ticket", ticket))
+		var response = mvc
+				.perform(post("/oauth2/token").header("Authorization", basic(client, secret))
+						.param("grant_type", LoginTicketGrantToken.GRANT_TYPE.getValue()).param("login_ticket", ticket))
 				.andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-		return Map.of("access_token", JsonPath.read(response, "$.access_token"),
-				"refresh_token", JsonPath.read(response, "$.refresh_token"));
+		return Map.of("access_token", JsonPath.read(response, "$.access_token"), "refresh_token",
+				JsonPath.read(response, "$.refresh_token"));
 	}
 
 	private void checkActive(String token, boolean active) throws Exception {
@@ -350,6 +435,7 @@ class TokenEndpointSecurityTest {
 	private String basic(String id, String secret) {
 		return "Basic " + Base64.getEncoder().encodeToString((id + ":" + secret).getBytes(StandardCharsets.UTF_8));
 	}
+
 	private static AuthenticationProps.Client client(String system) {
 		var client = new AuthenticationProps.Client();
 		client.setSystem(system);

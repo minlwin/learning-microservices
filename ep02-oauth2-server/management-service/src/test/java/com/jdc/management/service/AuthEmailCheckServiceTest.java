@@ -21,7 +21,8 @@ class AuthEmailCheckServiceTest {
         builder.defaultHeaders(headers -> headers.setBasicAuth("management-service", "secret"));
         var server = MockRestServiceServer.bindTo(builder).build();
         var service = new AuthEmailCheckService(builder.build(), props);
-        for (var body : new String[] {"{\"exists\":false}", "{\"exists\":true}", "{}"}) {
+        for (var body : new String[] {"{\"identityExists\":false,\"profileExists\":false}",
+                "{\"identityExists\":true,\"profileExists\":true}", "{}"}) {
             server.expect(requestTo(props.getEmailCheckUri())).andExpect(method(HttpMethod.POST))
                     .andExpect(header("Authorization", "Basic bWFuYWdlbWVudC1zZXJ2aWNlOnNlY3JldA=="))
                     .andExpect(content().json("{\"system\":\"Management\",\"email\":\"alice@example.com\"}"))

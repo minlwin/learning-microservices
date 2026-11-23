@@ -14,6 +14,7 @@ public class LoginTicketGrantToken extends OAuth2AuthorizationGrantAuthenticatio
 
 	private final String ticket;
 	private long tokenVersion;
+	private boolean onboarding;
 
 	public LoginTicketGrantToken(String ticket, Authentication client) {
 		super(GRANT_TYPE, client, Map.of());
@@ -30,6 +31,14 @@ public class LoginTicketGrantToken extends OAuth2AuthorizationGrantAuthenticatio
 
 	public void setTokenVersion(long tokenVersion) {
 		this.tokenVersion = tokenVersion;
+	}
+
+	public boolean isOnboarding() {
+		return onboarding;
+	}
+
+	public void setOnboarding(boolean onboarding) {
+		this.onboarding = onboarding;
 	}
 
 }

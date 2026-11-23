@@ -20,6 +20,8 @@ public class AuthenticationProps {
 	@NotBlank
 	private String pinLockUnlockUri = "http://localhost:8080/api/internal/pin-locks/unlock";
 	@NotBlank
+	private String emailCheckUri = "http://localhost:8080/api/internal/profiles/email/check";
+	@NotBlank
 	private String issuer = "http://localhost:8080";
 	@NotBlank
 	private String resourceId;

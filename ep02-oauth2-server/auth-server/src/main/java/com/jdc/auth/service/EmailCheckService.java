@@ -8,6 +8,7 @@ import com.jdc.auth.api.input.EmailCheckForm;
 import com.jdc.auth.api.output.EmailCheckResult;
 import com.jdc.auth.exceptions.BusinessRuleViolationException;
 import com.jdc.auth.model.repo.ProfileRepo;
+import com.jdc.auth.model.repo.IdentityRepo;
 import com.jdc.auth.props.AuthenticationProps;
 
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 @Transactional(readOnly = true)
 public class EmailCheckService {
 	private final ProfileRepo profiles;
+	private final IdentityRepo identities;
 	private final AuthenticationProps properties;
 
 	public EmailCheckResult check(String resourceId, EmailCheckForm form) {
@@ -27,6 +29,8 @@ public class EmailCheckService {
 		if (!properties.getSystems().containsKey(form.system())) {
 			throw new BusinessRuleViolationException("The requested system is not configured.");
 		}
-		return new EmailCheckResult(profiles.existsByIdentityUsernameAndSystem(form.email(), form.system()));
+		var identityExists = identities.findOneByUsername(form.email()).isPresent();
+		var profile = profiles.findByIdentityUsernameAndSystem(form.email(), form.system());
+		return new EmailCheckResult(identityExists, profile.isPresent(), profile.map(value -> value.getStatus().name()).orElse(null));
 	}
 }

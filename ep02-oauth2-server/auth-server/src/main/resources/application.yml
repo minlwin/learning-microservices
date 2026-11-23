@@ -57,7 +57,14 @@ app:
       topic: ${PIN_LOCK_SETTING_TOPIC:pin-lock-setting-changed.v1}
       activity-topic: ${PIN_LOCK_ACTIVITY_TOPIC:pin-lock-activity-changed.v1}
       consumer-group-id: ${PIN_LOCK_SETTING_CONSUMER_GROUP:auth-server-pin-lock-settings}
+    consumer-account:
+      approved-topic: ${CONSUMER_ACCOUNT_APPROVED_TOPIC:consumer-account-approved.v1}
+      approved-group-id: ${CONSUMER_ACCOUNT_APPROVED_GROUP:auth-server-consumer-account-approvals}
+      rejected-topic: ${CONSUMER_ACCOUNT_REJECTED_TOPIC:consumer-account-rejected.v1}
+      rejected-group-id: ${CONSUMER_ACCOUNT_REJECTED_GROUP:auth-server-consumer-account-rejections}
   auth:
+    consumer-invitation-url: ${CONSUMER_INVITATION_URL:http://localhost:3000/consumer/registration/{id}}
+    consumer-invitation-lifetime: ${CONSUMER_INVITATION_LIFETIME:7d}
     systems:
       Consumer:
         roles: [Consumer]
@@ -66,6 +73,7 @@ app:
     registration:
       system: Consumer
       role: Consumer
+      client-id: consumer-demo
     activation:
       system: Management
       role: Management
@@ -87,7 +95,7 @@ app:
     clients:
       consumer-demo:
         system: Consumer
-        scopes: [consumer.api]
+        scopes: [consumer.api, consumer.onboarding]
         audiences: [consumer.api]
         secret: ${CONSUMER_CLIENT_SECRET:consumer-demo-secret}
       management-demo:

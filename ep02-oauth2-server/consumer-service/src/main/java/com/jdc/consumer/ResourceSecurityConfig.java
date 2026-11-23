@@ -80,6 +80,8 @@ public class ResourceSecurityConfig {
 		http.oauth2ResourceServer(resource -> resource.opaqueToken(opaque -> opaque.introspector(introspector)));
 		http.authorizeHttpRequests(requests -> {
 			requests.requestMatchers("/api/management/**").hasAuthority("SCOPE_management.api");
+			requests.requestMatchers("/api/mobile/registration", "/api/mobile/registration/**")
+					.hasAuthority("SCOPE_consumer.onboarding");
 			requests.requestMatchers("/api/self/**", "/api/mobile/**").hasAuthority("SCOPE_consumer.api");
 			requests.anyRequest().denyAll();
 		});

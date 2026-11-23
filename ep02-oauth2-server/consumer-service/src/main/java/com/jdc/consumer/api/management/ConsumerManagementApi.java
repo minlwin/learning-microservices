@@ -44,5 +44,10 @@ public class ConsumerManagementApi {
 			@PathVariable UUID id) {
 		service.approve(id);
 	}
+
+	@PutMapping("{id}/reject")
+	public void reject(@PathVariable UUID id) {
+		service.reject(id);
+	}
 	
 }

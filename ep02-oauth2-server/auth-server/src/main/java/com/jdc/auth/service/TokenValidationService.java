@@ -48,7 +48,11 @@ public class TokenValidationService {
 		}
 		
 		var profile = profiles.findById(id).orElseThrow(this::invalid);
-		if (profile.getStatus() != Profile.Status.Active || profile.getTokenVersion() != version.longValue()
+		var scopes = authorization.getAuthorizedScopes();
+		var onboarding = scopes.equals(Set.of("consumer.onboarding"));
+		if ((onboarding && (profile.getStatus() != Profile.Status.Pending || !"Consumer".equals(profile.getSystem())))
+				|| (!onboarding && profile.getStatus() != Profile.Status.Active)
+				|| profile.getTokenVersion() != version.longValue()
 				|| !ProfileAccess.allows(profile.getSystem(), profile, properties)) {
 			throw invalid();
 		}
@@ -57,8 +61,8 @@ public class TokenValidationService {
 		if (profile.getIdentity() != null) {
 			attributes.put("username", profile.getIdentity().getUsername());
 		}
-		attributes.put("scope", String.join(" ", authorization.getAuthorizedScopes()));
-		var scopeAuthorities = authorization.getAuthorizedScopes()
+		attributes.put("scope", String.join(" ", scopes));
+		var scopeAuthorities = scopes
 				.stream().<GrantedAuthority>map(
 						scope -> new SimpleGrantedAuthority("SCOPE_" + scope))
 				.toList();

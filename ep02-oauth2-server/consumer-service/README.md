@@ -135,16 +135,17 @@ Column names and PostgreSQL types below follow the initialization SQL. **Nullabl
 | `address` | `VARCHAR(255)` | No | — | — | Consumer address. |
 | `date_of_birth` | `DATE` | No | — | — | Date of birth; date-only value without a time zone. |
 | `registration_type` | `SMALLINT` | No | — | CHECK (registration_type BETWEEN 0 AND 1) | Registration origin: 0 Self, 1 Management. |
-| `status` | `SMALLINT` | No | — | CHECK (status BETWEEN 0 AND 1) | Account state: 0 Applied, 1 Approved. |
+| `status` | `SMALLINT` | No | — | CHECK (status BETWEEN 0 AND 2) | Account state: 0 Applied, 1 Approved, 2 Rejected. |
 | `registered_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Registration instant. |
 | `approved_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Approval instant; null until approved. |
+| `rejected_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Rejection instant; null unless rejected. |
 
 Table constraints and indexes:
 
 | Name | Definition |
 | --- | --- |
 | `ck_account_registration_type` | `CHECK (registration_type BETWEEN 0 AND 1)` |
-| `ck_account_status` | `CHECK (status BETWEEN 0 AND 1)` |
+| `ck_account_status` | `CHECK (status BETWEEN 0 AND 2)` |
 
 #### `consumer.account_access`
 
@@ -232,7 +233,7 @@ Unique account email prevents duplicate local registrations. Access and lock tab
 | Column | Stored values |
 | --- | --- |
 | `account.registration_type` | 0 = Self; 1 = Management. |
-| `account.status` | 0 = Applied; 1 = Approved. |
+| `account.status` | 0 = Applied; 1 = Approved; 2 = Rejected. |
 | `account_access.status`, `access_history.status` | 0 = Login; 1 = Logout. |
 | `account_lock_status.status` | 0 = Active; 1 = Locked. |
 | `pin_lock_history.lock_type` | 0 = Temporary; 1 = Permenant (current enum spelling). |
@@ -290,6 +291,7 @@ For authenticated management users reviewing Consumer accounts and operational h
 | Account | GET | `/api/management/consumer` | Search accounts. |
 | Account | POST | `/api/management/consumer` | Register an account on behalf of a consumer. |
 | Account | PUT | `/api/management/consumer/{id}/approve` | Approve an Applied account. |
+| Account | PUT | `/api/management/consumer/{id}/reject` | Reject an Applied account. |
 | Access History | GET | `/api/management/consumer/access` | Search login/logout events. |
 | PIN Lock | GET | `/api/management/consumer/lock` | Search lock events and current lock state. |
 | PIN Lock | PUT | `/api/management/consumer/lock/{id}/unlock` | Request Auth Server to unlock a permanent PIN lock. |
@@ -306,7 +308,7 @@ Filters registration records and returns a page, ordered by registration instant
 
 | Field | Type | Location | Required | Sample Value | Definition |
 | --- | --- | --- | --- | --- | --- |
-| `status` | `Account.Status` | Query | No | `Applied` | Account status: Applied or Approved. |
+| `status` | `Account.Status` | Query | No | `Applied` | Account status: Applied, Approved, or Rejected. |
 | `registrationType` | `Account.RegistrationType` | Query | No | `Self` | Registration origin: Self or Management. |
 | `createdFrom` | `LocalDate` | Query | No | `2026-11-01` | Inclusive registration date in UTC. |
 | `createdTo` | `LocalDate` | Query | No | `2026-11-30` | Inclusive registration date in UTC; must not precede createdFrom. |
@@ -333,7 +335,7 @@ The page `content` contains `ConsumerAccountListItem` records. Pagination fields
 | `name` | `String (nullable)` | `Alice` | Consumer name; may be null for an existing incomplete record. |
 | `phone` | `String` | `09123456789` | Phone number. |
 | `email` | `String` | `alice@example.com` | Email address. |
-| `status` | `Account.Status` | `Applied` | Applied or Approved. |
+| `status` | `Account.Status` | `Applied` | Applied, Approved, or Rejected. |
 | `registrationType` | `Account.RegistrationType` | `Self` | Self or Management. |
 | `registeredAt` | `Instant` | `2026-11-22T06:30:00Z` | Registration instant (field name is registeredAt). |
 | `approvedAt` | `Instant (nullable)` | `null` | Approval instant; null until approved. |
@@ -381,7 +383,7 @@ Response: `200 OK`, `application/json`. The JSON below shows the item and princi
 
 `POST /api/management/consumer`
 
-Creates an Applied account with registration type Management. Initializes access status to Logout and lock status to Active in the same transaction. Rejects duplicate emails in Consumer service. Auth-server duplication precheck and event-driven invitation are deferred TODOs.
+Creates an Applied account with registration type Management. Initializes access status to Logout and lock status to Active in the same transaction. Rejects duplicate emails in Consumer Service and when Auth Server already has a Consumer profile. Approval creates a durable event; Auth Server then creates the time-limited invitation and queues its email for delivery.
 
 ##### Request Form — `ConsumerRegistrationForm`
 
@@ -430,7 +432,7 @@ HTTP/1.1 200 OK
 
 `PUT /api/management/consumer/{id}/approve`
 
-Changes Applied to Approved and records approvedAt. Repeated approval returns 400; an unknown account returns 404. Approval preserves access and lock states. Auth-profile activation is not performed yet.
+Changes Applied to Approved and records approvedAt. Repeated approval returns 400; an unknown account returns 404. Approval preserves access and lock states. A transactional outbox publishes the approval event. For self-registration, Auth Server activates the Pending profile. For management registration, Auth Server creates an invitation registration record and durably queues the invitation email.
 
 ##### Path Parameters
 
@@ -442,6 +444,17 @@ Request body: none.
 
 ```bash
 curl -X PUT "${BASE_URL}/api/management/consumer/550e8400-e29b-41d4-a716-446655440000/approve" \
+  -H "Authorization: Bearer ${MANAGEMENT_TOKEN}"
+```
+
+#### Reject a consumer
+
+`PUT /api/management/consumer/{id}/reject`
+
+Changes an Applied account to Rejected, records `rejectedAt`, and writes a rejection event to the transactional outbox. For self-registration, Auth Server closes the related Pending profile. Only Applied accounts can be rejected; repeated or otherwise invalid transitions return 400.
+
+```bash
+curl -X PUT "${BASE_URL}/api/management/consumer/550e8400-e29b-41d4-a716-446655440000/reject" \
   -H "Authorization: Bearer ${MANAGEMENT_TOKEN}"
 ```
 
@@ -499,7 +512,7 @@ The page `content` contains `AccessHistoryListItem` records. Pagination fields a
 | `accessAt` | `Instant` | `2026-11-22T07:00:00Z` | Access-event instant. |
 | `name` | `String (nullable)` | `Alice` | Current account name. |
 | `email` | `String` | `alice@example.com` | Current account email. |
-| `status` | `Account.Status` | `Approved` | Current account status: Applied or Approved, distinct from accessType. |
+| `status` | `Account.Status` | `Approved` | Current account status: Applied, Approved, or Rejected, distinct from accessType. |
 | `registeredAt` | `Instant` | `2026-11-22T06:30:00Z` | Account registration instant. |
 | `approvedAt` | `Instant (nullable)` | `2026-11-22T07:00:00Z` | Account approval instant; may be null. |
 
@@ -673,7 +686,7 @@ For a consumer submitting personal information or viewing their own profile. The
 
 `POST /api/mobile/registration`
 
-Creates an Applied account with Self registration type, Logout access status, and Active lock status. The email must exactly match the trusted authenticated username; another email returns 403. Duplicate registration returns 400. Requires an accepted consumer token; the Pending-profile onboarding-token flow remains unimplemented.
+Creates an Applied account with Self registration type, Logout access status, and Active lock status. The email must exactly match the trusted authenticated username; another email returns 403. Duplicate registration returns 400. Requires a Pending Consumer profile and the restricted `consumer.onboarding` scope. The normal Consumer API scope is unavailable until Auth Server processes the approval event and activates the profile.
 
 ##### Request Form — `SelfRegistrationForm`
 
@@ -745,7 +758,7 @@ Request body and query parameters: none. Missing account returns 404; missing tr
 | `address` | `String` | `Yangon` | Consumer address. |
 | `dateOfBirth` | `LocalDate` | `1990-01-01` | Date of birth (response name differs from request dob). |
 | `registrationType` | `Account.RegistrationType` | `Self` | Self or Management. |
-| `status` | `Account.Status` | `Approved` | Applied or Approved. |
+| `status` | `Account.Status` | `Approved` | Applied, Approved, or Rejected. |
 | `registeredAt` | `Instant` | `2026-11-22T06:30:00Z` | UTC registration instant. |
 | `approvedAt` | `Instant (nullable)` | `2026-11-22T07:00:00Z` | UTC approval instant; null until approved. |
 | `lockStatus` | `AccountLockStatus.Status (nullable)` | `Active` | Current permanent PIN lock projection (Active or Locked); temporary locks remain in Auth Server. Null if no projection exists. |

@@ -21,7 +21,7 @@ public class Account {
 	}
 
 	public enum Status {
-		Applied, Approved
+		Applied, Approved, Rejected
 	}
 
 	@Id
@@ -52,6 +52,8 @@ public class Account {
 	private Instant registeredAt;
 
 	private Instant approvedAt;
+
+	private Instant rejectedAt;
 
 	@OneToOne(mappedBy = "account")
 	private AccountAccess access;

@@ -31,10 +31,10 @@ public class AuthEmailCheckService {
         } catch (RestClientException exception) {
             throw new AuthServerUnavailableException();
         }
-        if (result == null || result.exists() == null) {
+        if (result == null || result.profileExists() == null) {
             throw new AuthServerUnavailableException();
         }
-        if (result.exists()) {
+        if (result.profileExists()) {
             throw new BusinessRuleViolationException("A Management profile already exists for this email address.");
         }
     }
@@ -42,6 +42,6 @@ public class AuthEmailCheckService {
     private record EmailCheckForm(String system, String email) {
     }
 
-    private record EmailCheckResult(Boolean exists) {
+    private record EmailCheckResult(Boolean identityExists, Boolean profileExists, String profileStatus) {
     }
 }

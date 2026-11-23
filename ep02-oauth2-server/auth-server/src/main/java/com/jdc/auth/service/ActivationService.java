@@ -100,7 +100,7 @@ public class ActivationService {
 		profile.setPassword(passwordEncoder.encode(form.password()));
 		profile = profileRepo.save(profile);
 		activation.setInitializedAt(Instant.now());
-		return new InitializationResult(profile.getId());
+		return new InitializationResult(profile.getId(), null, 0);
 	}
 
 	private Activation findAvailable(UUID id) {

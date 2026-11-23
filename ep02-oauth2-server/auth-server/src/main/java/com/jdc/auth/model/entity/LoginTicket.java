@@ -19,8 +19,11 @@ public class LoginTicket {
 	private String clientId;
 	@Column(nullable = false)
 	private Instant expiresAt;
-	private Instant consumedAt;	@Column(nullable = false)
+	private Instant consumedAt;
+	@Column(nullable = false)
 	private long tokenVersion;
+	@Column(nullable = false)
+	private boolean onboarding;
 
 
 }

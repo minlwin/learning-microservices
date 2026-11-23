@@ -20,15 +20,25 @@ import com.jdc.consumer.exceptions.ResourceNotFoundException;
 import com.jdc.consumer.model.entity.Account;
 import com.jdc.consumer.model.entity.AccountAccess;
 import com.jdc.consumer.model.entity.AccountLockStatus;
+import com.jdc.consumer.model.entity.OutboxEvent;
 import com.jdc.consumer.model.repo.AccountRepo;
 import com.jdc.consumer.model.repo.AccountAccessRepo;
 import com.jdc.consumer.model.repo.AccountLockStatusRepo;
+import com.jdc.consumer.model.repo.OutboxEventRepo;
+import com.jdc.consumer.props.KafkaProps;
+import com.jdc.consumer.event.ConsumerAccountApproved;
+import tools.jackson.databind.ObjectMapper;
 
 class ConsumerAccountServiceTest {
 	private final AccountRepo accounts = mock(AccountRepo.class);
 	private final AccountAccessRepo accesses = mock(AccountAccessRepo.class);
 	private final AccountLockStatusRepo locks = mock(AccountLockStatusRepo.class);
-	private final ConsumerAccountService service = new ConsumerAccountService(accounts, accesses, locks, new ConsumerAccountQuery());
+	private final OutboxEventRepo outboxEvents = mock(OutboxEventRepo.class);
+	private final AuthConsumerProfileCheckService authProfileCheck = mock(AuthConsumerProfileCheckService.class);
+	private final ObjectMapper objectMapper = mock(ObjectMapper.class);
+	private final KafkaProps kafkaProperties = new KafkaProps();
+	private final ConsumerAccountService service = new ConsumerAccountService(accounts, accesses, locks, outboxEvents,
+			new ConsumerAccountQuery(), authProfileCheck, kafkaProperties, objectMapper);
 	private final SelfRegistrationForm form = new SelfRegistrationForm("Alice", "alice@example.com", "1234", LocalDate.of(1990, 1, 1), "Address");
 
 	@BeforeEach
@@ -66,6 +76,8 @@ class ConsumerAccountServiceTest {
 		verify(accounts).save(captured.capture());
 		assertEquals(Account.RegistrationType.Management, captured.getValue().getRegistrationType());
 		assertEquals(Account.Status.Applied, captured.getValue().getStatus());
+		verify(authProfileCheck).requireNoConsumerProfile(form.email());
+		verifyNoInteractions(outboxEvents);
 	}
 
 	@Test
@@ -77,16 +89,44 @@ class ConsumerAccountServiceTest {
 	}
 
 	@Test
-	void approvesOnlyAppliedAccounts() {
+	void approvesOnlyAppliedAccounts() throws Exception {
 		var account = new Account();
 		account.setId(UUID.randomUUID());
+		account.setEmail(form.email());
+		account.setRegistrationType(Account.RegistrationType.Self);
 		account.setStatus(Account.Status.Applied);
 		when(accounts.findForUpdate(account.getId())).thenReturn(Optional.of(account));
+		when(objectMapper.writeValueAsString(any(ConsumerAccountApproved.class))).thenReturn("{}");
 		service.approve(account.getId());
 		assertEquals(Account.Status.Approved, account.getStatus());
 		assertNotNull(account.getApprovedAt());
+		var eventCaptor = ArgumentCaptor.forClass(ConsumerAccountApproved.class);
+		verify(objectMapper).writeValueAsString(eventCaptor.capture());
+		assertEquals(account.getId(), eventCaptor.getValue().consumerAccountId());
+		assertEquals("Self", eventCaptor.getValue().registrationType());
+		var outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+		verify(outboxEvents).save(outboxCaptor.capture());
+		assertEquals(kafkaProperties.getAccount().getApprovedTopic(), outboxCaptor.getValue().getTopic());
 		assertThrows(BusinessRuleViolationException.class, () -> service.approve(account.getId()));
 		assertThrows(ResourceNotFoundException.class, () -> service.approve(UUID.randomUUID()));
+	}
+
+	@Test
+	void rejectsOnlyAppliedAccountsAndRecordsAnOutboxEvent() throws Exception {
+		var account = new Account();
+		account.setId(UUID.randomUUID());
+		account.setEmail(form.email());
+		account.setRegistrationType(Account.RegistrationType.Self);
+		account.setStatus(Account.Status.Applied);
+		when(accounts.findForUpdate(account.getId())).thenReturn(Optional.of(account));
+		when(objectMapper.writeValueAsString(any(com.jdc.consumer.event.ConsumerAccountRejected.class))).thenReturn("{}");
+
+		service.reject(account.getId());
+
+		assertEquals(Account.Status.Rejected, account.getStatus());
+		assertNotNull(account.getRejectedAt());
+		verify(outboxEvents).save(argThat(event -> kafkaProperties.getAccount().getRejectedTopic().equals(event.getTopic())));
+		assertThrows(BusinessRuleViolationException.class, () -> service.reject(account.getId()));
 	}
 
 	@Test

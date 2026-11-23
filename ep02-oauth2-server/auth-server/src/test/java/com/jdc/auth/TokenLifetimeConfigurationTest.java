@@ -25,6 +25,7 @@ class TokenLifetimeConfigurationTest {
 				"app.auth.clients.consumer-demo.system", "Consumer",
 				"app.auth.clients.consumer-demo.secret", "consumer-demo-secret",
 				"app.auth.clients.consumer-demo.scopes[0]", "consumer.api",
+				"app.auth.clients.consumer-demo.scopes[1]", "consumer.onboarding",
 				"app.auth.clients.consumer-demo.audiences[0]", "consumer.api"));
 		var properties = new Binder(source).bind("app.auth", AuthenticationProps.class).get();
 		AuthTestProperties.configure(properties);
@@ -41,6 +42,7 @@ class TokenLifetimeConfigurationTest {
 				"app.auth.clients.consumer-demo.system", "Consumer",
 				"app.auth.clients.consumer-demo.secret", "first-secret",
 				"app.auth.clients.consumer-demo.scopes[0]", "consumer.api",
+				"app.auth.clients.consumer-demo.scopes[1]", "consumer.onboarding",
 				"app.auth.clients.consumer-demo.audiences[0]", "consumer.api"));
 		var properties = new Binder(source).bind("app.auth", AuthenticationProps.class).get();
 		AuthTestProperties.configure(properties);

@@ -22,6 +22,8 @@ public class AuthenticationProps {
 	private Map<String, Client> clients = Map.of();
 	private ProfileDefaults registration;
 	private ProfileDefaults activation;
+	private String consumerInvitationUrl = "http://localhost:3000/consumer/registration/{id}";
+	private Duration consumerInvitationLifetime = Duration.ofDays(7);
 
 	public String systemForClient(String clientId) {
 		var client = clients.get(clientId);
@@ -58,6 +60,10 @@ public class AuthenticationProps {
 		}
 		validateProfileDefaults(registration);
 		validateProfileDefaults(activation);
+		if (registration != null && (registration.getClientId() == null
+				|| !clients.containsKey(registration.getClientId()))) {
+			throw new IllegalStateException("Self-registration requires a configured onboarding client.");
+		}
 		for (var entry : resources.entrySet()) {
 			var resource = entry.getValue();
 			if (!systems.keySet().containsAll(resource.getEmailCheckSystems())) {
@@ -75,7 +81,7 @@ public class AuthenticationProps {
 
 	private void validateProfileDefaults(ProfileDefaults defaults) {
 		if (defaults != null && !allows(defaults.getSystem(), defaults.getRole())) {
-			throw new IllegalStateException("Onboarding requires a configured system and permitted role.");
+			throw new IllegalStateException("Profile defaults require a configured system and permitted role.");
 		}
 	}
 
@@ -83,6 +89,7 @@ public class AuthenticationProps {
 	public static class ProfileDefaults {
 		private String system;
 		private String role;
+		private String clientId;
 	}
 
 	@Data

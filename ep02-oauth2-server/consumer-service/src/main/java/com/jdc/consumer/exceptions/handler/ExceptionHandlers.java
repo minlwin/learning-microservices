@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import com.jdc.consumer.exceptions.BusinessRuleViolationException;
+import com.jdc.consumer.exceptions.AuthServerUnavailableException;
 import com.jdc.consumer.exceptions.ResourceNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 
@@ -23,6 +24,11 @@ public class ExceptionHandlers extends ResponseEntityExceptionHandler {
 	@ExceptionHandler(BusinessRuleViolationException.class)
 	public ProblemDetail businessRule(BusinessRuleViolationException exception) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
+
+	@ExceptionHandler(AuthServerUnavailableException.class)
+	public ProblemDetail authServerUnavailable(AuthServerUnavailableException exception) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
 	}
 
 	@ExceptionHandler({IllegalArgumentException.class, ConstraintViolationException.class})

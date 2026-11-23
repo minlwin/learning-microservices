@@ -55,6 +55,11 @@ public class RegistrationApi {
 	public void validate(@PathVariable UUID id, @RequestBody @Validated OtpForm form) {
 		service.validateOtp(id, form);
 	}
+
+	@PostMapping("{id}/otp/request")
+	public void requestOtp(@PathVariable UUID id) {
+		service.requestOtp(id);
+	}
 	
 	/**
 	 * Send again OTP
