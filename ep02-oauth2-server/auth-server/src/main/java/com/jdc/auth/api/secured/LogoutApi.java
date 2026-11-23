@@ -1,4 +1,4 @@
-package com.jdc.auth.api;
+package com.jdc.auth.api.secured;
 
 import java.util.UUID;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

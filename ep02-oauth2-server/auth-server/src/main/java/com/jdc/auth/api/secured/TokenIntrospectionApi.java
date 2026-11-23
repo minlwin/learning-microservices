@@ -1,4 +1,4 @@
-package com.jdc.auth.api;
+package com.jdc.auth.api.secured;
 
 import java.time.Instant;
 import java.util.*;

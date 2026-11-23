@@ -87,6 +87,10 @@ Defaults are in [`application.yml`](src/main/resources/application.yml) and targ
 | `MAIL_FROM` | `no-reply@wallet-demo.local` | Sender address |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
 | `KAFKA_CONSUMER_GROUP_ID` | `auth-server` | Kafka consumer group |
+| `KAFKA_OUTBOX_FIXED_DELAY` | `1000` | Delay in milliseconds between outbox publisher polls |
+| `PIN_LOCK_SETTING_TOPIC` | `pin-lock-setting-changed.v1` | Topic consumed for PIN lock setting changes |
+| `PIN_LOCK_SETTING_CONSUMER_GROUP` | `auth-server-pin-lock-settings` | PIN settings consumer group; instances should share it when using the same auth database |
+| `PIN_LOCK_ACTIVITY_TOPIC` | `pin-lock-activity-changed.v1` | Topic published for PIN lock transitions |
 
 `POSTGRES_PASSWORD` configures the container superuser; it does not change the `authuser` password defined in `01-init.sql`. Keep the SQL and application database credentials consistent when changing them.
 
@@ -112,7 +116,9 @@ app:
 
 Restart the server after changing these settings. Token response examples below assume the default lifetimes.
 
-Custom auth-server settings are bound through `AuthenticationProps`, `AdministratorProps`, `OtpCodeProps`, and `MailConfigProps`. `PropertiesConfig` enables mail/OTP property binding; services use constructor injection instead of `@Value`. Standard datasource, SMTP, and Kafka settings remain under `spring.*` and use Spring Boot auto-configuration.
+Custom auth-server settings are bound through `AuthenticationProps`, `AdministratorProps`, `OtpCodeProps`, `MailConfigProps`, and `KafkaProps`. `PropertiesConfig` enables mail/OTP property binding; `KafkaProps` binds `app.kafka.pin-lock` for the topic and consumer group and `app.kafka.outbox.fixed-delay` for outbox polling. Standard datasource, SMTP, and Kafka client settings remain under `spring.*` and use Spring Boot auto-configuration.
+
+The service has a generic outbox table, repository, and scheduled `OutboxEventPublisher`. `PinLockActivityService` enqueues PIN lock transition events in the same transaction as state changes. Other Auth Server business workflows can use the same outbox infrastructure. Polling cadence defaults to one second and can be changed with `KAFKA_OUTBOX_FIXED_DELAY`.
 
 Mail uses MIME messages with HTML content. Development credentials are examples; replace them for deployed environments. Client secrets belong in a trusted backend and must not be embedded in browser or mobile application code.
 
@@ -154,6 +160,10 @@ All tables below belong to the `auth` schema.
 | `registration` | `id` — UUID | Consumer signup and email verification: `email`, `registered_at`, `initialized_at`, and embedded OTP fields. |
 | `activation` | `id` — UUID | Management activation: `email`, `initialized_at`, and nullable OTP fields before the first code request. |
 | `login_ticket` | `id` — UUID | One-time login credentials: unique `token_hash`, `profile_id`, `client_id`, `token_version`, `expires_at`, and `consumed_at`. |
+| `pin_lock_setting` | `system` — VARCHAR(255) | Latest setting snapshot replicated from Management Service, including version and deleted flag. |
+| `pin_lock_state` | `profile_id` — UUID | Current PIN lock status and failed-attempt count for a system-specific profile. Kept separate from `profile.status`. |
+| `pin_lock_history` | `id` — UUID | Audit records for PIN lock, expiry, and reset transitions. |
+| `outbox_event` | `id` — UUID | Durable event payloads waiting to be published, with publish and retry status. |
 | `oauth2_registered_client` | `id` — VARCHAR(100) | Persistent OAuth client configuration: unique `client_id`, encoded `client_secret`, authentication methods, grant types, scopes, client settings, and token settings. |
 | `oauth2_authorization` | `id` — VARCHAR(100) | Issued authorization state: `registered_client_id`, `principal_name`, scopes, serialized attributes, access and refresh tokens, metadata, and expiration timestamps. |
 
@@ -193,6 +203,68 @@ Table constraints and indexes:
 | `ck_profile_system` | `CHECK (length(trim(system)) > 0)` |
 | `ck_profile_role` | `CHECK (length(trim(role)) > 0)` |
 | `ck_profile_status` | `CHECK (status BETWEEN 0 AND 3)` |
+
+#### `auth.pin_lock_setting`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `system` | `VARCHAR(255)` | No | — | PK | Configured system identifier, such as Consumer. |
+| `temp_lock_fails_count` | `INTEGER` | No | — | — | Failed-PIN threshold for a temporary lock. |
+| `temp_lock_wait_minutes` | `INTEGER` | No | — | — | Temporary-lock duration in minutes. |
+| `permanent_lock_fails_count` | `INTEGER` | No | — | — | Permanent-lock failure threshold. |
+| `deleted` | `BOOLEAN` | No | — | — | Soft-delete state mirrored from Management Service. |
+| `version` | `BIGINT` | No | — | — | Management Service version used to ignore duplicate or older events. |
+
+#### `auth.pin_lock_state`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `profile_id` | `UUID` | No | — | PK; FK → auth.profile.id | Profile whose PIN lock state is tracked. One row per profile, created when lock tracking begins. |
+| `status` | `VARCHAR(32)` | No | — | CHECK | `Active`, `TemporarilyLocked`, or `PermanentlyLocked`; independent of the profile's general status. |
+| `failed_attempt_count` | `INTEGER` | No | — | CHECK (failed_attempt_count >= 0) | Failed PIN attempts since the last successful PIN verification; used for the permanent-lock threshold. |
+| `failed_since_temporary_lock` | `INTEGER` | No | — | CHECK (failed_since_temporary_lock >= 0) | Failed attempts since the last temporary lock; reset when a temporary lock is applied. |
+| `locked_until` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Expiration instant for a temporary lock; null for an active or permanent state. |
+| `last_failed_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Instant of the latest failed PIN verification. |
+| `status_changed_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Instant when the current status was last changed. |
+| `setting_version` | `BIGINT` | No | — | — | PIN lock setting version used for the latest decision. |
+| `version` | `BIGINT` | No | — | — | JPA optimistic-lock version. |
+
+#### `auth.pin_lock_history`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | No | — | PK | History record UUID generated by Hibernate. |
+| `profile_id` | `UUID` | No | — | FK → auth.profile.id | Profile whose PIN lock changed. |
+| `action` | `VARCHAR(32)` | No | — | CHECK | `TemporarilyLocked`, `PermanentlyLocked`, `TemporaryLockExpired`, or `PermanentUnlocked`. |
+| `failed_attempt_count` | `INTEGER` | No | — | CHECK (failed_attempt_count >= 0) | Failed-attempt count at the time of the recorded transition. |
+| `locked_until` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Temporary lock expiry when applicable. |
+| `setting_version` | `BIGINT` | No | — | — | Policy version used for the recorded transition. |
+| `requested_by` | `VARCHAR(255)` | Yes | — | — | Management principal for an administrative unlock. |
+| `occurred_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Time the transition was recorded. |
+
+Table constraints and indexes:
+
+| Name | Definition |
+| --- | --- |
+| `ck_pin_lock_state_status` | `CHECK (status IN ('Active', 'TemporarilyLocked', 'PermanentlyLocked'))` |
+| `ck_pin_lock_state_failed_attempt_count` | `CHECK (failed_attempt_count >= 0)` |
+| `ck_pin_lock_state_failed_since_temp` | `CHECK (failed_since_temporary_lock >= 0)` |
+| `ck_pin_lock_state_locked_until` | Temporary status requires `locked_until`; other statuses require null. |
+| `ck_pin_lock_history_action` | `CHECK (action IN ('TemporarilyLocked', 'PermanentlyLocked', 'TemporaryLockExpired', 'PermanentUnlocked'))` |
+| `ix_pin_lock_history_profile_occurred_at` | `INDEX (profile_id, occurred_at)` |
+
+#### `auth.outbox_event`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | No | — | PK | Event UUID, assigned by the event producer. |
+| `topic` | `VARCHAR(100)` | No | — | — | Kafka topic for this event. |
+| `aggregate_key` | `VARCHAR(255)` | No | — | — | Kafka message key, generally the aggregate identifier. |
+| `payload` | `TEXT` | No | — | — | Serialized event payload. |
+| `created_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | When the event was enqueued. |
+| `published_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Set after Kafka acknowledges publication. |
+| `attempt_count` | `INTEGER` | No | — | — | Number of failed publication attempts. |
+| `last_error` | `TEXT` | Yes | — | — | Most recent publication error, if any. |
 
 #### `auth.registration`
 
@@ -355,7 +427,7 @@ Event timestamps across all services use Java `Instant` and PostgreSQL `TIMESTAM
 
 ### Initialization and inspection
 
-[`01-init.sql`](../postgres/01-init.sql) creates database roles, schemas, permissions, and default search paths. [`02-auth-schema.sql`](../postgres/02-auth-schema.sql) creates all seven auth tables as `authuser`. Docker executes these scripts only when initializing an empty PostgreSQL volume; editing a script does not change an existing database.
+[`01-init.sql`](../postgres/01-init.sql) creates database roles, schemas, permissions, and default search paths. [`02-auth-schema.sql`](../postgres/02-auth-schema.sql) creates the auth tables, including PIN lock state and history, as `authuser`. Docker executes initialization scripts only for an empty PostgreSQL volume; after schema changes during development, recreate the local volume so the scripts run again.
 
 Inspect the schema from the project root:
 
@@ -1264,7 +1336,7 @@ The tests use mocks, test security configurations, and embedded H2 for JDBC toke
 ## Current boundaries
 
 - Client registrations and OAuth authorizations use shared PostgreSQL storage. RSA signing keys are still generated at startup; persistent shared keys and key rotation remain necessary for a production signing-key lifecycle. Current internal introspection validates persisted token records rather than JWT signatures.
-- Kafka connection settings exist, but event listener classes are placeholders. Registration approval, account status events, management activation creation, and event publishing are not implemented.
+- Auth Server consumes versioned PIN lock setting events from Management Service and stores the latest snapshot in `auth.pin_lock_setting`. Management Service uses a transactional outbox and a compacted topic. `PinLockActivityService` tracks PIN failures, applies temporary/permanent thresholds, releases temporary locks lazily on the next PIN operation, and publishes lock or permanent-unlock transitions through the auth outbox. Consumer and Management Services consume those transitions and keep idempotent local history. The current setting has no separate counting-window fields. The existing username/password login is separate; a PIN verifier must call `checkBeforePinAttempt`, `recordFailedAttempt`, and `recordSuccessfulAttempt` around its own PIN check. Other registration/account event workflows remain unimplemented.
 - Public API routes use a broad `/api/**` permit rule after the dedicated logout and internal security chains. New sensitive endpoints need explicit authorization rules.
 - Password initialization currently requires a nonblank password; a stronger password policy is not implemented.
 

@@ -32,8 +32,15 @@ spring:
         "[enable.idempotence]": true
 
 app:
+  kafka:
+    pin-lock:
+      activity-topic: ${PIN_LOCK_ACTIVITY_TOPIC:pin-lock-activity-changed.v1}
+      activity-consumer-group-id: ${PIN_LOCK_ACTIVITY_CONSUMER_GROUP:consumer-service-pin-lock-history}
+    outbox:
+      fixed-delay: ${KAFKA_OUTBOX_FIXED_DELAY:1000}
   auth:
     introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
+    pin-lock-unlock-uri: ${AUTH_PIN_LOCK_UNLOCK_URI:http://localhost:8080/api/internal/pin-locks/unlock}
     issuer: ${AUTH_ISSUER:http://localhost:8080}
     resource-id: ${CONSUMER_RESOURCE_ID:consumer-service}
     resource-secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}

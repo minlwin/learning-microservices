@@ -33,10 +33,10 @@ import com.jdc.auth.AuthTestProperties;
 import com.jdc.auth.service.LoginTicketService;
 import com.jdc.auth.service.LogoutService;
 import com.jdc.auth.service.TokenValidationService;
-import com.jdc.auth.api.LogoutApi;
-import com.jdc.auth.api.EmailCheckApi;
+import com.jdc.auth.api.secured.LogoutApi;
+import com.jdc.auth.api.secured.EmailCheckApi;
 import com.jdc.auth.service.EmailCheckService;
-import com.jdc.auth.api.TokenIntrospectionApi;
+import com.jdc.auth.api.secured.TokenIntrospectionApi;
 import com.jdc.auth.exceptions.handler.ExceptionHandlers;
 
 class TokenEndpointSecurityTest {
@@ -131,11 +131,12 @@ class TokenEndpointSecurityTest {
 	}
 
 	@Test
-	void allowsApiButBlocksEveryOtherProtocolEndpointWithoutRedirects() throws Exception {
-		mvc.perform(get("/api/ping")).andExpect(status().isOk()).andExpect(content().string("ok"));
+	void deniesUnlistedApiRoutesAndBlocksEveryOtherProtocolEndpointWithoutRedirects() throws Exception {
+		mvc.perform(get("/api/ping")).andExpect(status().isForbidden());
+		mvc.perform(post("/api/ping")).andExpect(status().isForbidden());
 		String[] paths = { "/", "/login", "/logout", "/oauth2/authorize", "/oauth2/jwks", "/oauth2/introspect",
 				"/oauth2/revoke", "/oauth2/device_authorization", "/oauth2/device_verification", "/oauth2/par",
-				"/.well-known/oauth-authorization-server", "/.well-known/openid-configuration", "/userinfo",
+				"/.well-known/oauth-authorization-server", "/.well-known/openid-configuration", "/userinfo", "/api/ping",
 				"/connect/logout", "/connect/register", "/oauth2/register", "/oauth2/token" };
 		for (String path : paths) {
 			mvc.perform(get(path)).andExpect(status().isForbidden()).andExpect(header().doesNotExist("Location"));

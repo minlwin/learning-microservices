@@ -53,13 +53,31 @@ CREATE TABLE consumer.account_lock_status (
 -- lock_type: Temporary=0, Permenant=1 (spelling matches the current Java enum).
 CREATE TABLE consumer.pin_lock_history (
     id UUID PRIMARY KEY,
+    event_id UUID NOT NULL,
     account_id UUID NOT NULL REFERENCES consumer.account (id),
     lock_type SMALLINT NOT NULL,
     lock_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
-    CONSTRAINT ck_pin_lock_history_type CHECK (lock_type BETWEEN 0 AND 1)
+    locked_until TIMESTAMP(6) WITH TIME ZONE,
+    requested_by VARCHAR(255),
+    CONSTRAINT ck_pin_lock_history_type CHECK (lock_type BETWEEN 0 AND 2),
+    CONSTRAINT uk_consumer_pin_lock_history_event UNIQUE (event_id)
 );
 
 CREATE INDEX ix_pin_lock_history_account_lock_at
     ON consumer.pin_lock_history (account_id, lock_at);
+
+CREATE TABLE consumer.outbox_event (
+    id UUID PRIMARY KEY,
+    topic VARCHAR(100) NOT NULL,
+    aggregate_key VARCHAR(255) NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    published_at TIMESTAMP(6) WITH TIME ZONE,
+    attempt_count INTEGER NOT NULL,
+    last_error TEXT
+);
+
+CREATE INDEX ix_consumer_outbox_event_pending
+    ON consumer.outbox_event (published_at, created_at);
 
 COMMIT;

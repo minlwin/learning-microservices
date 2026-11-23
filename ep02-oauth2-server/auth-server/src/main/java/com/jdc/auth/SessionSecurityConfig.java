@@ -71,7 +71,7 @@ public class SessionSecurityConfig {
 		http.httpBasic(basic -> basic.authenticationEntryPoint((request, response, _) ->
 				errors.resolveException(request, response, null, new BadCredentialsException("Resource-server authentication is required."))));
 		http.authorizeHttpRequests(requests -> {
-			requests.requestMatchers(HttpMethod.POST, "/api/internal/tokens/introspect", "/api/internal/profiles/email/check").hasRole("RESOURCE_SERVER");
+			requests.requestMatchers(HttpMethod.POST, "/api/internal/tokens/introspect", "/api/internal/profiles/email/check", "/api/internal/pin-locks/unlock").hasRole("RESOURCE_SERVER");
 			requests.anyRequest().denyAll();
 		});
 		http.exceptionHandling(exceptions -> {

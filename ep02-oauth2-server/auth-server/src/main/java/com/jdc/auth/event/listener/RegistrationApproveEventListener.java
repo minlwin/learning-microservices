@@ -1,4 +1,4 @@
-package com.jdc.auth.listener;
+package com.jdc.auth.event.listener;
 
 public class RegistrationApproveEventListener {
 

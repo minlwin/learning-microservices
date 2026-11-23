@@ -11,6 +11,8 @@ import com.jdc.management.exceptions.BusinessRuleViolationException;
 import com.jdc.management.exceptions.ResourceNotFoundException;
 import com.jdc.management.model.entity.PinLockSetting;
 import com.jdc.management.model.repo.PinSettingRepo;
+import com.jdc.management.event.PinLockSettingChangedEvent;
+import com.jdc.management.event.service.PinLockSettingOutboxService;
 import com.jdc.management.props.ClientSystemProps;
 
 import lombok.RequiredArgsConstructor;
@@ -21,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 public class PinLockSettingService {
     private final PinSettingRepo repository;
     private final ClientSystemProps clientSystems;
+    private final PinLockSettingOutboxService outboxService;
 
     public List<PinLockSettingDto> getAllSettings() {
         var settings = repository.findByDeletedFalseOrderBySystemAsc();
@@ -45,7 +48,8 @@ public class PinLockSettingService {
         entity.setSystem(system);
         entity.setDeleted(false);
         apply(entity, form);
-        repository.save(entity);
+        repository.saveAndFlush(entity);
+        outboxService.enqueue(PinLockSettingChangedEvent.from(entity));
     }
 
     @Transactional
@@ -55,7 +59,8 @@ public class PinLockSettingService {
                 .filter(setting -> !setting.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("PIN lock settings were not found for this system."));
         apply(entity, form);
-        repository.save(entity);
+        repository.saveAndFlush(entity);
+        outboxService.enqueue(PinLockSettingChangedEvent.from(entity));
     }
 
     private void validate(String system, PinLockSettingForm form) {

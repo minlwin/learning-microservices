@@ -50,6 +50,13 @@ spring:
         "[enable.idempotence]": true
 
 app:
+  kafka:
+    outbox:
+      fixed-delay: ${KAFKA_OUTBOX_FIXED_DELAY:1000}
+    pin-lock:
+      topic: ${PIN_LOCK_SETTING_TOPIC:pin-lock-setting-changed.v1}
+      activity-topic: ${PIN_LOCK_ACTIVITY_TOPIC:pin-lock-activity-changed.v1}
+      consumer-group-id: ${PIN_LOCK_SETTING_CONSUMER_GROUP:auth-server-pin-lock-settings}
   auth:
     systems:
       Consumer:
@@ -66,10 +73,12 @@ app:
       consumer-service:
         secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
         email-check-systems: [Consumer]
+        pin-lock-systems: [Consumer]
         audiences: [consumer.api, management.api]
       management-service:
         secret: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
         email-check-systems: [Consumer, Management]
+        pin-lock-systems: [Consumer, Management]
         audiences: [management.api]
     issuer: ${AUTH_ISSUER:http://localhost:8080}
     ticket-lifetime-seconds: 60

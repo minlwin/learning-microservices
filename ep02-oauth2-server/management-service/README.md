@@ -55,6 +55,13 @@ Defaults are in [`application.yml`](src/main/resources/application.yml).
 | `AUTH_CONNECT_TIMEOUT` / `AUTH_READ_TIMEOUT` | `3s` / `3s` | Positive HTTP timeouts. |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker. |
 | `KAFKA_CONSUMER_GROUP_ID` | `management-service` | Kafka consumer group. |
+| `PIN_LOCK_SETTING_TOPIC` | `pin-lock-setting-changed.v1` | Topic for setting-change events. |
+| `PIN_LOCK_SETTING_TOPIC_PARTITIONS` | `3` | Topic partition count. |
+| `PIN_LOCK_SETTING_TOPIC_REPLICAS` | `1` | Topic replication factor; increase for a multi-broker deployment. |
+| `KAFKA_OUTBOX_FIXED_DELAY` | `1000` | Delay in milliseconds between outbox polling cycles. |
+| `PIN_LOCK_ACTIVITY_TOPIC` | `pin-lock-activity-changed.v1` | PIN lock activity topic. |
+| `PIN_LOCK_ACTIVITY_CONSUMER_GROUP` | `management-service-pin-lock-history` | Management Service's independent history consumer group. |
+| `AUTH_PIN_LOCK_UNLOCK_URI` | `http://localhost:8080/api/internal/pin-locks/unlock` | Auth Server's internal permanent-unlock endpoint. |
 | `AUTH_EMAIL_CHECK_URI` | `http://localhost:8080/api/internal/profiles/email/check` | Management email availability endpoint. |
 
 Custom security settings are bound to validated `AuthenticationProps` under `app.auth`:
@@ -80,10 +87,13 @@ Override the audience list with `AUTH_AUDIENCES` (comma-separated). Empty creden
 | Custom repository base class and method validation | `RepositoryConfig` and `ValidatedRepositoryFactoryBean` |
 | DataSource, EntityManagerFactory, transaction manager | Spring Boot auto-configuration from `spring.datasource` / `spring.jpa` |
 | KafkaTemplate, producer/consumer factories, listener container factory | Spring Boot auto-configuration from `spring.kafka` |
+| Topic settings and outbox polling interval | `KafkaProps`, bound from `app.kafka` and validated at startup |
+| Compacted PIN setting topic declaration | `KafkaTopicConfig` |
+| PIN lock activity event listener | `PinLockActivityEventListener`, with its own consumer group |
 
-The PostgreSQL defaults use `wallet_demo`, schema `management`, and role `mnguser` with development password `mngpass`. Override with `MANAGEMENT_DB_URL`, `MANAGEMENT_DB_USERNAME`, and `MANAGEMENT_DB_PASSWORD`. Hibernate uses `ddl-auto: validate` and `open-in-view: false`; initialize tables using the scripts under `postgres` before starting the service. No migrations or automatic table creation are enabled.
+The PostgreSQL defaults use `wallet_demo`, schema `management`, and role `mnguser` with development password `mngpass`. Override with `MANAGEMENT_DB_URL`, `MANAGEMENT_DB_USERNAME`, and `MANAGEMENT_DB_PASSWORD`. Hibernate uses `ddl-auto: validate` and `open-in-view: false`; tables are created by the scripts under `postgres`. Docker init scripts run only for a new database volume, so recreate the local volume after schema changes during development.
 
-Kafka defaults to `localhost:9092`, group `management-service`, String keys/values (including JSON text), record acknowledgment, and idempotent producer settings. Override using `KAFKA_BOOTSTRAP_SERVERS` and `KAFKA_CONSUMER_GROUP_ID`. No event listeners, publishers, topics, or business workflows are implemented by these settings. No extra datasource/Kafka bean configuration is needed unless customized behavior is introduced.
+Kafka defaults to `localhost:9092`, String keys/values (including JSON text), record acknowledgment, and idempotent producer settings. `KafkaProps` binds topic settings, the management history listener group, and outbox polling interval from `app.kafka`. Management Service creates the compacted PIN setting topic and publishes setting events through its outbox. It also consumes PIN lock activity with its own group and records Management-system history idempotently. Permanent unlock requests go to Auth Server; temporary locks expire by `lockedUntil` when the next PIN operation is checked, without a scheduler.
 
 Host defaults assume services run on the host and infrastructure runs in Docker Compose. For container deployments, override localhost connection addresses appropriately.
 
@@ -129,7 +139,9 @@ The role search path and JDBC currentSchema select `management`; Hibernate also 
 | Table | Primary key | Purpose |
 | --- | --- | --- |
 | `account` | `id` — UUID | Management name, phone, unique email, status, registration and activation instants. |
-| `pin_lock_setting` | `system` — VARCHAR(255) | One policy per system with temporary/permanent thresholds, duration and deleted flag. |
+| `pin_lock_history` | `id` — UUID | PIN lock and release activity received from Auth Server. |
+| `pin_lock_setting` | `system` — VARCHAR(255) | One policy per system with temporary/permanent thresholds, duration, deleted flag, and optimistic version. |
+| `outbox_event` | `id` — UUID | Durable event payloads waiting to be published to Kafka, plus publish/retry status. |
 
 ### Table definitions
 
@@ -153,6 +165,18 @@ Table constraints and indexes:
 | --- | --- |
 | `ck_management_account_status` | `CHECK (status BETWEEN 0 AND 1)` |
 
+#### `management.pin_lock_history`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | No | — | PK | Local history record UUID. |
+| `event_id` | `UUID` | No | — | UNIQUE | Auth Server event ID used to ignore duplicate Kafka delivery. |
+| `account_id` | `UUID` | No | — | FK → management.account.id | Management account whose PIN state changed. |
+| `lock_type` | `SMALLINT` | No | — | CHECK (lock_type BETWEEN 0 AND 2) | Activity type: 0 Temporary, 1 Permenant, 2 Released. |
+| `lock_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Lock or release event instant. |
+| `locked_until` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Expiry instant for a temporary lock. |
+| `requested_by` | `VARCHAR(255)` | Yes | — | — | Management principal that requested a permanent unlock. |
+
 #### `management.pin_lock_setting`
 
 | Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
@@ -162,6 +186,20 @@ Table constraints and indexes:
 | `temp_lock_wailt_minutes` | `INTEGER` | No | — | — | Temporary-lock duration in minutes; API field tempLockWaitMinutes. |
 | `permenant_lock_fails_count` | `INTEGER` | No | — | — | Permanent-lock failure threshold; API field permanentLockFailsCount. |
 | `deleted` | `BOOLEAN` | No | — | — | Soft-delete flag; deleted policies are excluded from list results. |
+| `version` | `BIGINT` | No | `0` | — | JPA optimistic version used to order setting-change events. |
+
+#### `management.outbox_event`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | No | — | PK | Event ID, also included in the published payload. |
+| `topic` | `VARCHAR(100)` | No | — | — | Kafka topic selected for this event. |
+| `aggregate_key` | `VARCHAR(255)` | No | — | — | System name used as the Kafka record key. |
+| `payload` | `TEXT` | No | — | — | JSON representation of the setting-change event. |
+| `created_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | When the outbox event was created. |
+| `published_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | When Kafka acknowledged publication; null means pending. |
+| `attempt_count` | `INTEGER` | No | `0` | — | Number of recorded publish failures. |
+| `last_error` | `TEXT` | Yes | — | — | Most recent publish error, if any. |
 
 ### Relationships and constraints
 
@@ -175,7 +213,11 @@ Account email is unique. Policy system is a string primary key checked against a
 | `pin_lock_setting.system` | Case-sensitive configured string, such as Consumer. |
 | `pin_lock_setting.deleted` | Boolean; deleted rows are excluded from reads. |
 
-The API uses corrected names tempLockWaitMinutes and permanentLockFailsCount. Existing entity/database spellings remain tempLockWailtMinutes / temp_lock_wailt_minutes and permenantLockFailsCount / permenant_lock_fails_count; the service and DTO map between them.
+The API and event use corrected names tempLockWaitMinutes and permanentLockFailsCount. Existing entity/database spellings remain tempLockWailtMinutes / temp_lock_wailt_minutes and permenantLockFailsCount / permenant_lock_fails_count; the service and DTO map between them.
+
+### PIN lock setting event publication
+
+Creating or updating a setting stores a versioned `PinLockSettingChangedEvent` in `management.outbox_event` in the same database transaction as the setting. A scheduled publisher sends pending records to the compacted `pin-lock-setting-changed.v1` topic using the system as the Kafka key. Successful sends are marked published; failures remain pending and are retried. A crash after Kafka accepts an event but before the outbox row is marked can produce a duplicate, so consumers must be idempotent.
 
 ### Security data and timestamps
 
@@ -643,7 +685,7 @@ Run the complete project suite with `mvn clean test` from the project root. Sche
 
 ## Current boundaries
 
-These APIs store policy only. Failure counting, lock enforcement, automatic unlocking, and Kafka policy-change publishing are not implemented here. No delete endpoint is provided, although reads exclude deleted records and creation can restore them.
+These APIs store policy and publish versioned change events for Auth Server. Failure counting, lock enforcement, and automatic unlocking are Auth Server responsibilities. No delete endpoint is provided, although reads exclude deleted records and creation can restore them.
 
 Management account search, local creation, and updates are implemented. Accounts remain Pending until the future activation-event consumer is implemented. Creation does not yet start the invitation workflow. Email changes require a separate identity-synchronization workflow. There are no Consumer Mobile endpoints in this service; those belong to consumer-service.
 

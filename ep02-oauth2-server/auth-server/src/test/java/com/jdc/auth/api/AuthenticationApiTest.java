@@ -1,6 +1,7 @@
 package com.jdc.auth.api;
 
 import com.jdc.auth.exceptions.handler.ExceptionHandlers;
+import com.jdc.auth.api.publicapi.AuthenticationApi;
 
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;

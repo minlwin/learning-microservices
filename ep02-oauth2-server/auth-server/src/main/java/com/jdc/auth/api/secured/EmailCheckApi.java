@@ -1,4 +1,4 @@
-package com.jdc.auth.api;
+package com.jdc.auth.api.secured;
 
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;

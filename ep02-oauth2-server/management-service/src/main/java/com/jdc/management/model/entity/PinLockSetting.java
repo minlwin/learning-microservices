@@ -3,6 +3,7 @@ package com.jdc.management.model.entity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Version;
 import lombok.Data;
 
 @Data
@@ -23,5 +24,9 @@ public class PinLockSetting {
 
 	@Column(nullable = false)
 	private boolean deleted;
+
+	@Version
+	@Column(nullable = false)
+	private long version;
 	
 }

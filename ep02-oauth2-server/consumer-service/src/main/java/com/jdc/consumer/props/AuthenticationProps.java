@@ -18,6 +18,8 @@ public class AuthenticationProps {
 	@NotBlank
 	private String introspectionUri = "http://localhost:8080/api/internal/tokens/introspect";
 	@NotBlank
+	private String pinLockUnlockUri = "http://localhost:8080/api/internal/pin-locks/unlock";
+	@NotBlank
 	private String issuer = "http://localhost:8080";
 	@NotBlank
 	private String resourceId;

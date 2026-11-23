@@ -19,6 +19,7 @@ import com.jdc.management.model.entity.PinLockSetting;
 import com.jdc.management.model.repo.PinSettingRepo;
 import com.jdc.management.props.ClientSystemProps;
 import com.jdc.management.service.PinLockSettingService;
+import com.jdc.management.event.service.PinLockSettingOutboxService;
 
 class PinLockSettingApiTest {
     private PinSettingRepo repository;
@@ -33,7 +34,8 @@ class PinLockSettingApiTest {
         repository = mock(PinSettingRepo.class);
         var props = new ClientSystemProps();
         props.setSystems(List.of("Consumer", "Management"));
-        var service = new PinLockSettingService(repository, props);
+        var outboxService = mock(PinLockSettingOutboxService.class);
+        var service = new PinLockSettingService(repository, props, outboxService);
         var builder = MockMvcBuilders.standaloneSetup(new PinLockSettingApi(service));
         builder.setControllerAdvice(new ExceptionHandlers());
         mvc = builder.build();

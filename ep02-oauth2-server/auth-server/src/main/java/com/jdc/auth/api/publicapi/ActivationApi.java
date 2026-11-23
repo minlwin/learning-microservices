@@ -1,4 +1,4 @@
-package com.jdc.auth.api;
+package com.jdc.auth.api.publicapi;
 
 import java.util.UUID;
 

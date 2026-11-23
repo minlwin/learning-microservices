@@ -72,6 +72,66 @@ CREATE TABLE auth.login_ticket (
     consumed_at TIMESTAMP(6) WITH TIME ZONE
 );
 
+-- Replicated PIN lock settings received from Management Service events.
+CREATE TABLE auth.pin_lock_setting (
+    system VARCHAR(255) PRIMARY KEY,
+    temp_lock_fails_count INTEGER NOT NULL,
+    temp_lock_wait_minutes INTEGER NOT NULL,
+    permanent_lock_fails_count INTEGER NOT NULL,
+    deleted BOOLEAN NOT NULL,
+    version BIGINT NOT NULL
+);
+
+-- Per-profile PIN lock state is separate from the general profile status.
+CREATE TABLE auth.pin_lock_state (
+    profile_id UUID PRIMARY KEY REFERENCES auth.profile (id),
+    status VARCHAR(32) NOT NULL,
+    failed_attempt_count INTEGER NOT NULL,
+    failed_since_temporary_lock INTEGER NOT NULL,
+    locked_until TIMESTAMP(6) WITH TIME ZONE,
+    last_failed_at TIMESTAMP(6) WITH TIME ZONE,
+    status_changed_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    setting_version BIGINT NOT NULL,
+    version BIGINT NOT NULL,
+    CONSTRAINT ck_pin_lock_state_status CHECK (status IN ('Active', 'TemporarilyLocked', 'PermanentlyLocked')),
+    CONSTRAINT ck_pin_lock_state_failed_attempt_count CHECK (failed_attempt_count >= 0),
+    CONSTRAINT ck_pin_lock_state_failed_since_temp CHECK (failed_since_temporary_lock >= 0),
+    CONSTRAINT ck_pin_lock_state_locked_until CHECK (
+        (status = 'TemporarilyLocked' AND locked_until IS NOT NULL)
+        OR (status <> 'TemporarilyLocked' AND locked_until IS NULL)
+    )
+);
+
+CREATE TABLE auth.pin_lock_history (
+    id UUID PRIMARY KEY,
+    profile_id UUID NOT NULL REFERENCES auth.profile (id),
+    action VARCHAR(32) NOT NULL,
+    failed_attempt_count INTEGER NOT NULL,
+    locked_until TIMESTAMP(6) WITH TIME ZONE,
+    setting_version BIGINT NOT NULL,
+    requested_by VARCHAR(255),
+    occurred_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    CONSTRAINT ck_pin_lock_history_action CHECK (action IN ('TemporarilyLocked', 'PermanentlyLocked', 'TemporaryLockExpired', 'PermanentUnlocked')),
+    CONSTRAINT ck_pin_lock_history_failed_attempt_count CHECK (failed_attempt_count >= 0)
+);
+
+CREATE INDEX ix_pin_lock_history_profile_occurred_at
+    ON auth.pin_lock_history (profile_id, occurred_at);
+
+CREATE TABLE auth.outbox_event (
+    id UUID PRIMARY KEY,
+    topic VARCHAR(100) NOT NULL,
+    aggregate_key VARCHAR(255) NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    published_at TIMESTAMP(6) WITH TIME ZONE,
+    attempt_count INTEGER NOT NULL,
+    last_error TEXT
+);
+
+CREATE INDEX ix_auth_outbox_event_pending
+    ON auth.outbox_event (published_at, created_at);
+
 -- Spring Security JDBC repositories (PostgreSQL-compatible types).
 CREATE TABLE auth.oauth2_registered_client (
     id varchar(100) NOT NULL,

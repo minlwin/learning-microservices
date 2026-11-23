@@ -3,9 +3,12 @@ package com.jdc.auth.model.repo;
 import java.util.UUID;
 import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 
 import com.jdc.auth.model.entity.Profile;
@@ -14,6 +17,10 @@ import com.jdc.auth.model.entity.Identity;
 public interface ProfileRepo extends JpaRepository<Profile, UUID>{
 
 	Optional<Profile> findByIdentityUsernameAndSystem(String username, String system);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select p from Profile p join fetch p.identity where p.identity.username = :username and p.system = :system")
+	Optional<Profile> findForUpdateByUsernameAndSystem(@Param("username") String username, @Param("system") String system);
 
 	boolean existsByIdentityUsernameAndSystem(String username, String system);
 

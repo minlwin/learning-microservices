@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -24,9 +25,14 @@ public class SecurityConfig {
 				.csrf(AbstractHttpConfigurer::disable)
 				.formLogin(AbstractHttpConfigurer::disable).httpBasic(AbstractHttpConfigurer::disable)
 				.logout(AbstractHttpConfigurer::disable).requestCache(AbstractHttpConfigurer::disable)
-				.authorizeHttpRequests(requests -> requests
-						.requestMatchers("/api/**").permitAll()
-						.anyRequest().denyAll())
+				.authorizeHttpRequests(requests -> {
+					requests.requestMatchers(HttpMethod.POST,
+							"/api/auth",
+							"/api/registration",
+							"/api/registration/**",
+							"/api/activate/**").permitAll();
+					requests.anyRequest().denyAll();
+				})
 				.exceptionHandling(errors -> errors
 						.authenticationEntryPoint((request, response, _) -> resolver.resolveException(request, response, null,
 								new AccessDeniedException("This endpoint is disabled.")))

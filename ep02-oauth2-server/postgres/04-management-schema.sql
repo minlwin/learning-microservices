@@ -15,13 +15,43 @@ CREATE TABLE management.account (
     CONSTRAINT ck_management_account_status CHECK (status BETWEEN 0 AND 1)
 );
 
+CREATE TABLE management.pin_lock_history (
+    id UUID PRIMARY KEY,
+    event_id UUID NOT NULL,
+    account_id UUID NOT NULL REFERENCES management.account (id),
+    lock_type SMALLINT NOT NULL,
+    lock_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    locked_until TIMESTAMP(6) WITH TIME ZONE,
+    requested_by VARCHAR(255),
+    CONSTRAINT ck_management_pin_lock_history_type CHECK (lock_type BETWEEN 0 AND 2),
+    CONSTRAINT uk_management_pin_lock_history_event UNIQUE (event_id)
+);
+
+CREATE INDEX ix_management_pin_lock_history_account_lock_at
+    ON management.pin_lock_history (account_id, lock_at);
+
 -- Column spelling follows the current entity fields.
 CREATE TABLE management.pin_lock_setting (
     system VARCHAR(255) PRIMARY KEY,
     temp_lock_fails_count INTEGER NOT NULL,
     temp_lock_wailt_minutes INTEGER NOT NULL,
     permenant_lock_fails_count INTEGER NOT NULL,
-    deleted BOOLEAN NOT NULL
+    deleted BOOLEAN NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0
 );
+
+CREATE TABLE management.outbox_event (
+    id UUID PRIMARY KEY,
+    topic VARCHAR(100) NOT NULL,
+    aggregate_key VARCHAR(255) NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    published_at TIMESTAMP(6) WITH TIME ZONE,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
+);
+
+CREATE INDEX ix_management_outbox_event_pending
+    ON management.outbox_event (published_at, created_at);
 
 COMMIT;
