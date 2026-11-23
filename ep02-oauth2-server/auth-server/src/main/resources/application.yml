@@ -38,7 +38,7 @@ spring:
       auto-offset-reset: earliest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      # Event payloads are strings (including JSON text) until event DTOs are defined.
+      # Listeners deserialize JSON string payloads into service-local event DTOs.
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     listener:
       ack-mode: record
@@ -62,9 +62,18 @@ app:
       approved-group-id: ${CONSUMER_ACCOUNT_APPROVED_GROUP:auth-server-consumer-account-approvals}
       rejected-topic: ${CONSUMER_ACCOUNT_REJECTED_TOPIC:consumer-account-rejected.v1}
       rejected-group-id: ${CONSUMER_ACCOUNT_REJECTED_GROUP:auth-server-consumer-account-rejections}
+    management-account:
+      invitation-topic: ${MANAGEMENT_ACCOUNT_INVITATION_TOPIC:management-account-invitation.v1}
+      invitation-group-id: ${MANAGEMENT_ACCOUNT_INVITATION_GROUP:auth-server-management-account-invitations}
+      activated-topic: ${MANAGEMENT_ACCOUNT_ACTIVATED_TOPIC:management-account-activated.v1}
   auth:
+    signing-keys:
+      private-key-path: ${AUTH_SIGNING_PRIVATE_KEY_PATH:${user.home}/.wallet-demo/auth-signing-private.pem}
+      public-key-path: ${AUTH_SIGNING_PUBLIC_KEY_PATH:${user.home}/.wallet-demo/auth-signing-public.pem}
     consumer-invitation-url: ${CONSUMER_INVITATION_URL:http://localhost:3000/consumer/registration/{id}}
     consumer-invitation-lifetime: ${CONSUMER_INVITATION_LIFETIME:7d}
+    management-activation-url: ${MANAGEMENT_ACTIVATION_URL:http://localhost:3000/management/activation/{id}}
+    management-activation-lifetime: ${MANAGEMENT_ACTIVATION_LIFETIME:7d}
     systems:
       Consumer:
         roles: [Consumer]
@@ -111,6 +120,7 @@ app:
       activation: 5
     resend:
       interval-seconds: 60
+      max-sends: ${OTP_MAX_SENDS:5}
     cooldown:
       missing-count: 3
       waiting-duration: 30
@@ -118,4 +128,4 @@ app:
     system: Management
     role: Administrator
     username: ${ADMINISTRATOR_USERNAME:admin@example.com}
-    password: ${ADMINISTRATOR_PASSWORD:password}
+    password: ${ADMINISTRATOR_PASSWORD:ChangeThisLocalAdminPassword1}

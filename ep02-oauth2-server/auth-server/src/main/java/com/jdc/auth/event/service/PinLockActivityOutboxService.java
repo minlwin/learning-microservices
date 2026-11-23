@@ -30,6 +30,7 @@ public class PinLockActivityOutboxService {
         outboxEvent.setAggregateKey(event.profileId().toString());
         outboxEvent.setPayload(toJson(event));
         outboxEvent.setCreatedAt(Instant.now());
+        outboxEvent.setNextAttemptAt(outboxEvent.getCreatedAt());
         outboxEvent.setAttemptCount(0);
         repository.save(outboxEvent);
     }

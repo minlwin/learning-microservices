@@ -11,8 +11,6 @@ import com.jdc.auth.model.entity.dto.OtpRecord;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import lombok.Data;
 
@@ -21,13 +19,15 @@ import lombok.Data;
 public class Activation {
 
 	@Id
-	@GeneratedValue(strategy = GenerationType.UUID)
 	private UUID id;
 	
 	@Column(nullable = false)
 	private String email;
 	
 	private Instant initializedAt;
+
+	@Column(name = "invitation_expires_at", nullable = false)
+	private Instant invitationExpiresAt;
 
 	@Embedded
 	@AttributeOverrides({

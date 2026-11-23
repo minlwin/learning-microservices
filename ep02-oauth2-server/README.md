@@ -1,30 +1,69 @@
-# Learning Spring Authorization Server
+# Learning Authorization Server
 
-This project is created to learn Spring Authorization Server. Spring Authorization Server use OAuth2 Authorization and Open ID Connect standard.
+A Java and Spring Boot learning project for an OAuth2-based, multi-service wallet backend. It demonstrates authentication and token management, separate Consumer and Management APIs, service-owned data schemas, and asynchronous communication with Kafka.
 
-## Concept of OAuth2 Authorization
+The project is a Maven reactor with three applications. Each service README contains its detailed setup, configuration, database tables, API reference, and implementation notes.
 
-The Authorization Server issues tokens and defines the authorization granted by those tokens. The Resource Server validates the tokens and enforces access rules. The Resource Server does not always contact the Authorization Server when it receives an API request.
+## Services
 
-There are two major token validation mechanisms in Spring Security:
-1. **JWT validation** — Resource Server validates the token locally.
-2. **Opaque token introspection** — Resource Server contacts the Authorization Server to validate the token.
+| Service | Purpose | Default URL | Details |
+| --- | --- | --- | --- |
+| Auth Server | User registration and activation, authentication, token issuance, internal token introspection, and PIN lock coordination. | `http://localhost:8080` | [Auth Server README](auth-server/README.md) |
+| Consumer Service | Consumer account registration and approval, Consumer profile APIs, access history, and PIN lock history. | `http://localhost:8081` | [Consumer Service README](consumer-service/README.md) |
+| Management Service | Management accounts, PIN lock policies, configured client systems, and Management PIN lock history. | `http://localhost:8082` | [Management Service README](management-service/README.md) |
 
-### 1. JWT Validation
+The services keep their data in separate PostgreSQL schemas. They communicate over HTTP for authentication and internal operations, and use Kafka events for account lifecycle and PIN lock updates. Auth Server owns identity, credentials, and token state; Consumer and Management Services own their respective domain records.
 
-This is a common approach in Spring Security microservice architectures.
+## Local infrastructure
 
-![Main Concepts](readme/1.0-main-concept.png)
+Docker Compose provides PostgreSQL, Kafka, and Mailpit for local development.
 
-1. Authorization Server issues a digitally signed JWT access token.
-2. Client sends the JWT to the Resource Server.
-3. Spring Security's JwtDecoder validates the JWT signature using the Authorization Server's public key.
-4. Spring Security checks the token's expiration, issuer and other configured validation rules.
-5. Spring Security converts the validated token into an authenticated Authentication object.
-6. Resource Server checks endpoint authorization rules, such as hasAuthority("SCOPE_read").
+| Component | Address | Use |
+| --- | --- | --- |
+| PostgreSQL | `localhost:5432` | Service database schemas and roles. |
+| Kafka | `localhost:9092` | Inter-service events. |
+| Mailpit SMTP | `localhost:1025` | Development email delivery. |
+| Mailpit web UI | [http://localhost:8025](http://localhost:8025) | View OTP and invitation emails. |
 
-The Resource Server may retrieve and cache public signing keys from the Authorization Server's JWKS endpoint, but it does not need to call the Authorization Server for every API request.
+## Start locally
 
-### 2. Opaque Token Introspection Mechanism
+Requirements: Java 25, Maven, and Docker Compose. From the project root, start the infrastructure:
 
-When the Resource Server receives an opaque access token, it sends the token to the Authorization Server's introspection endpoint.
+```bash
+export POSTGRES_PASSWORD=postgres
+docker compose up -d
+```
+
+Run each application in a separate terminal:
+
+```bash
+mvn -pl auth-server spring-boot:run
+```
+
+```bash
+mvn -pl consumer-service spring-boot:run
+```
+
+```bash
+mvn -pl management-service spring-boot:run
+```
+
+Build the full Maven reactor with `mvn clean package`. Each service can also be started individually; see its README for prerequisites, configuration, and service-specific commands.
+
+Compose initializes the PostgreSQL schemas only when the database volume is empty. If you change the development DDL and want to recreate the local database, `docker compose down -v` removes the PostgreSQL and Kafka volumes, then `docker compose up -d` initializes them again.
+
+## Registration and account lifecycle
+
+- Consumer self-registration begins in Auth Server, where the user verifies an email address and initializes a password. The Consumer Service stores the registration for Management review; approval activates the Consumer profile.
+- A Management user can create a Consumer account. After Management approves it, Auth Server sends an invitation so the Consumer can verify the email and initialize a password.
+- Management accounts are created by an administrator and activated by the invited user. They do not require a separate approval step.
+
+For endpoint-level details, request and response formats, and flow notes, use the linked service READMEs.
+
+## Additional guides
+
+- [Authentication endpoint](readme/authentication-endpoint.md)
+- [Token endpoint](readme/token-endpoint.md)
+- [Logout](readme/logout.md)
+- [Administrator bootstrap](readme/administrator-bootstrap.md)
+- [GitHub Actions](readme/github-actions.md)

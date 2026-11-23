@@ -1,6 +1,7 @@
 package com.jdc.auth;
 
 import org.springframework.jdbc.core.JdbcOperations;
+import org.springframework.core.env.Environment;
 import org.springframework.security.jackson.SecurityJacksonModules;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
@@ -9,9 +10,17 @@ import java.util.ArrayList;
 import java.util.Set;
 
 import java.security.KeyPairGenerator;
+import java.security.KeyFactory;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
+import java.util.UUID;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
-import java.util.UUID;
 import com.nimbusds.jose.jwk.*;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -152,16 +161,68 @@ public class AuthorizationServerConfig {
 	}
 
 	@Bean
-	JWKSource<SecurityContext> signingKeys() throws Exception {
-		var generator = KeyPairGenerator.getInstance("RSA");
-		generator.initialize(2048);
-		var pair = generator.generateKeyPair();
-		var keyBuilder = new RSAKey.Builder((RSAPublicKey) pair.getPublic());
-		keyBuilder.privateKey((RSAPrivateKey) pair.getPrivate());
-		keyBuilder.keyID(UUID.randomUUID().toString());
+	JWKSource<SecurityContext> signingKeys(AuthenticationProps properties, Environment environment) throws Exception {
+		var privatePath = properties.getSigningKeys().getPrivateKeyPath();
+		var publicPath = properties.getSigningKeys().getPublicKeyPath();
+		if (privatePath.toAbsolutePath().normalize().equals(publicPath.toAbsolutePath().normalize())) {
+			throw new IllegalStateException("Auth Server signing private and public keys must use separate files.");
+		}
+		if (Files.exists(privatePath) != Files.exists(publicPath)) {
+			throw new IllegalStateException("Both Auth Server signing key files must exist together.");
+		}
+		if (!Files.exists(privatePath)) {
+			if (environment.matchesProfiles("prod", "production")) {
+				throw new IllegalStateException("Production Auth Server signing keys must be provisioned before startup.");
+			}
+			generateDevelopmentSigningKeys(privatePath, publicPath);
+		}
+		var keyFactory = KeyFactory.getInstance("RSA");
+		var privateBytes = decodePem(Files.readString(privatePath), "PRIVATE KEY");
+		var publicBytes = decodePem(Files.readString(publicPath), "PUBLIC KEY");
+		var privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(privateBytes));
+		var publicKey = keyFactory.generatePublic(new X509EncodedKeySpec(publicBytes));
+		if (!(privateKey instanceof RSAPrivateKey rsaPrivateKey)
+				|| !(publicKey instanceof RSAPublicKey rsaPublicKey)) {
+			throw new IllegalStateException("Auth Server signing keys must be RSA keys.");
+		}
+		if (!rsaPrivateKey.getModulus().equals(rsaPublicKey.getModulus())) {
+			throw new IllegalStateException("Auth Server signing public and private keys do not match.");
+		}
+		var keyBuilder = new RSAKey.Builder(rsaPublicKey);
+		keyBuilder.privateKey(rsaPrivateKey);
+		var thumbprint = MessageDigest.getInstance("SHA-256").digest(publicKey.getEncoded());
+		keyBuilder.keyID(Base64.getUrlEncoder().withoutPadding().encodeToString(thumbprint));
 		var key = keyBuilder.build();
 		var keys = new JWKSet(key);
 		return (selector, _) -> selector.select(keys);
+	}
+
+	private void generateDevelopmentSigningKeys(Path privatePath, Path publicPath) throws Exception {
+		Files.createDirectories(privatePath.toAbsolutePath().getParent());
+		Files.createDirectories(publicPath.toAbsolutePath().getParent());
+		try {
+			Files.createFile(privatePath, java.nio.file.attribute.PosixFilePermissions
+					.asFileAttribute(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")));
+		} catch (UnsupportedOperationException ignored) {
+			Files.createFile(privatePath);
+		}
+		var generator = KeyPairGenerator.getInstance("RSA");
+		generator.initialize(2048);
+		var pair = generator.generateKeyPair();
+		var encoder = Base64.getMimeEncoder(64, new byte[] {'\n'});
+		var privatePem = "-----BEGIN PRIVATE KEY-----\n" + encoder.encodeToString(pair.getPrivate().getEncoded())
+				+ "\n-----END PRIVATE KEY-----\n";
+		var publicPem = "-----BEGIN PUBLIC KEY-----\n" + encoder.encodeToString(pair.getPublic().getEncoded())
+				+ "\n-----END PUBLIC KEY-----\n";
+		Files.writeString(privatePath, privatePem, StandardCharsets.US_ASCII);
+		Files.writeString(publicPath, publicPem, StandardCharsets.US_ASCII);
+	}
+
+	private byte[] decodePem(String pem, String keyType) {
+		var body = pem.replace("-----BEGIN " + keyType + "-----", "")
+				.replace("-----END " + keyType + "-----", "")
+				.replaceAll("\\s", "");
+		return Base64.getDecoder().decode(body);
 	}
 
 	@Bean

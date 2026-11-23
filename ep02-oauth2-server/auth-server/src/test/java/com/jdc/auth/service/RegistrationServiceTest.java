@@ -102,7 +102,7 @@ class RegistrationServiceTest {
 	void preventsRepeatedInitialization() {
 		registration.setInitializedAt(Instant.now());
 		assertThrows(BusinessRuleViolationException.class,
-				() -> service.initialize(registration.getId(), new InitializationForm("password")));
+				() -> service.initialize(registration.getId(), new InitializationForm("StrongPassword123")));
 		verifyNoInteractions(profiles);
 	}
 
@@ -114,7 +114,7 @@ class RegistrationServiceTest {
 		identity.setUsername(registration.getEmail());
 		when(identities.findOneByUsername(registration.getEmail())).thenReturn(Optional.of(identity));
 		when(profiles.existsByIdentityAndSystem(identity, "Consumer")).thenReturn(false);
-		when(encoder.encode("password")).thenReturn("encoded-password");
+		when(encoder.encode("StrongPassword123")).thenReturn("encoded-password");
 		var profile = new Profile();
 		profile.setId(UUID.randomUUID());
 		when(profiles.save(any(Profile.class))).thenAnswer(invocation -> {
@@ -125,7 +125,7 @@ class RegistrationServiceTest {
 		when(loginTickets.issueOnboarding(any(Profile.class), eq("consumer-demo")))
 				.thenReturn(new AuthenticationResult("one-time-ticket", 60));
 
-		var result = service.initialize(registration.getId(), new InitializationForm("password"));
+		var result = service.initialize(registration.getId(), new InitializationForm("StrongPassword123"));
 
 		assertEquals(profile.getId(), result.id());
 		assertEquals("one-time-ticket", result.loginTicket());

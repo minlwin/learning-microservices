@@ -17,6 +17,11 @@ public class PinLockActivityTopicConfig {
                 .partitions(3)
                 .replicas(1)
                 .build();
-        return new NewTopics(topic);
+        var managementAccount = properties.getManagementAccount();
+        var activated = TopicBuilder.name(managementAccount.getActivatedTopic())
+                .partitions(3)
+                .replicas(1)
+                .build();
+        return new NewTopics(topic, activated);
     }
 }

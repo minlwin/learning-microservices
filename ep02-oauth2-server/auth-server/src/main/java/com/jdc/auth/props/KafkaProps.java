@@ -24,6 +24,9 @@ public class KafkaProps {
     @Valid
     private ConsumerAccount consumerAccount = new ConsumerAccount();
 
+    @Valid
+    private ManagementAccount managementAccount = new ManagementAccount();
+
     @Data
     public static class Outbox {
         @Min(1)
@@ -55,5 +58,17 @@ public class KafkaProps {
 
         @NotBlank
         private String rejectedGroupId = "auth-server-consumer-account-rejections";
+    }
+
+    @Data
+    public static class ManagementAccount {
+        @NotBlank
+        private String invitationTopic = "management-account-invitation.v1";
+
+        @NotBlank
+        private String invitationGroupId = "auth-server-management-account-invitations";
+
+        @NotBlank
+        private String activatedTopic = "management-account-activated.v1";
     }
 }

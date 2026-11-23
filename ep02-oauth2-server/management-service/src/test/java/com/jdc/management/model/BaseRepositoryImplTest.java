@@ -83,7 +83,7 @@ class BaseRepositoryImplTest {
 
     @Test
     void searchesManagementAccountsWithMatchingCountAndEscapedPrefix() {
-        var service = new AccountManagementService(repository, null, new AccountQuery());
+        var service = new AccountManagementService(repository, null, new AccountQuery(), null);
         var form = new AccountSearch(null, LocalDate.of(2026, 11, 21),
                 LocalDate.of(2026, 11, 21), "al");
         var page = service.search(form, 0, 1);

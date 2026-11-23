@@ -23,6 +23,7 @@ import com.jdc.auth.model.entity.dto.OtpRecord.CheckStatus;
 import com.jdc.auth.model.repo.ActivationRepo;
 import com.jdc.auth.model.repo.IdentityRepo;
 import com.jdc.auth.model.repo.ProfileRepo;
+import com.jdc.auth.event.service.ManagementAccountActivationOutboxService;
 
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class ActivationService {
 	private final ProfileRepo profileRepo;
 	private final PasswordEncoder passwordEncoder;
 	private final OtpCodeService otpService;
+	private final ManagementAccountActivationOutboxService activationOutbox;
 
 
 	/** Sends the first code; repeated requests follow the same resend restrictions. */
@@ -80,6 +82,7 @@ public class ActivationService {
 	}
 
 	public InitializationResult initialize(UUID id, InitializationForm form) {
+		PasswordPolicy.validate(form.password());
 		var activation = findAvailable(id);
 		if(activation.getOtpRecord() == null || activation.getOtpRecord().getStatus() != CheckStatus.Success) {
 			throw new BusinessRuleViolationException("Please verify your email address before setting your account password.");
@@ -99,7 +102,9 @@ public class ActivationService {
 		profile.setStatus(Profile.Status.Active);
 		profile.setPassword(passwordEncoder.encode(form.password()));
 		profile = profileRepo.save(profile);
-		activation.setInitializedAt(Instant.now());
+		var activatedAt = Instant.now();
+		activation.setInitializedAt(activatedAt);
+		activationOutbox.enqueue(activation.getId(), activation.getEmail(), activatedAt);
 		return new InitializationResult(profile.getId(), null, 0);
 	}
 
@@ -108,6 +113,9 @@ public class ActivationService {
 				.orElseThrow(() -> new ResourceNotFoundException("No activation request was found for the provided ID."));
 		if(activation.getInitializedAt() != null) {
 			throw new BusinessRuleViolationException("This activation request has already been used to initialize an account.");
+		}
+		if (activation.getInvitationExpiresAt() == null || !activation.getInvitationExpiresAt().isAfter(Instant.now())) {
+			throw new BusinessRuleViolationException("This activation invitation has expired. Contact support for a new invitation.");
 		}
 		return activation;
 	}
@@ -120,6 +128,9 @@ public class ActivationService {
 		}
 		if(otp.getStatus() == CheckStatus.Success) {
 			throw new BusinessRuleViolationException("Your email address has already been verified. Please continue with account initialization.");
+		}
+		if (otp.getSendCount() >= otpProperties.getResend().getMaxSends()) {
+			throw new BusinessRuleViolationException("The maximum number of verification codes has been sent. Contact support for a new invitation.");
 		}
 		checkCooldown(otp);
 		var now = Instant.now();

@@ -37,8 +37,10 @@ class ConsumerAccountServiceTest {
 	private final AuthConsumerProfileCheckService authProfileCheck = mock(AuthConsumerProfileCheckService.class);
 	private final ObjectMapper objectMapper = mock(ObjectMapper.class);
 	private final KafkaProps kafkaProperties = new KafkaProps();
-	private final ConsumerAccountService service = new ConsumerAccountService(accounts, accesses, locks, outboxEvents,
-			new ConsumerAccountQuery(), authProfileCheck, kafkaProperties, objectMapper);
+	private final ConsumerAccountRegistrationService registrationService =
+			new ConsumerAccountRegistrationService(accounts, accesses, locks);
+	private final ConsumerAccountService service = new ConsumerAccountService(accounts, outboxEvents,
+			new ConsumerAccountQuery(), authProfileCheck, registrationService, kafkaProperties, objectMapper);
 	private final SelfRegistrationForm form = new SelfRegistrationForm("Alice", "alice@example.com", "1234", LocalDate.of(1990, 1, 1), "Address");
 
 	@BeforeEach

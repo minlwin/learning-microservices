@@ -1,19 +1,21 @@
 package com.jdc.management.service;
 
-import java.time.Instant;
 import java.util.UUID;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+
 import com.jdc.management.api.input.AccountRegistrationForm;
 import com.jdc.management.api.input.AccountSearch;
 import com.jdc.management.api.output.AccountListItem;
 import com.jdc.management.exceptions.BusinessRuleViolationException;
 import com.jdc.management.exceptions.ResourceNotFoundException;
-import com.jdc.management.model.entity.Account;
-import com.jdc.management.model.repo.AccountRepo;
 import com.jdc.management.model.query.AccountQuery;
+import com.jdc.management.model.repo.AccountRepo;
+
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -23,6 +25,7 @@ public class AccountManagementService {
     private final AccountRepo accounts;
     private final AuthEmailCheckService emailCheck;
     private final AccountQuery accountQuery;
+    private final AccountCreationService accountCreation;
 
     /** 
      * Date filters represent inclusive UTC calendar dates. 
@@ -40,23 +43,13 @@ public class AccountManagementService {
                 page, size);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void create(AccountRegistrationForm form) {
         if (accounts.existsByEmail(form.email())) {
             throw new BusinessRuleViolationException("A management account already exists for this email address.");
         }
         emailCheck.checkAvailable(form.email());
-        var account = new Account();
-        account.setName(form.name());
-        account.setPhone(form.phone());
-        account.setEmail(form.email());
-        account.setStatus(Account.Status.Pending);
-        account.setRegisteredAt(Instant.now());
-        accounts.save(account);
-        // TODO: Publish a management-account invitation after commit using an outbox.
-        // Auth-server must enforce email uniqueness again when creating the profile.
-        // TODO: Consume activation events after password initialization and set
-        // status=Activated and activatedAt, with idempotent event processing.
+        accountCreation.create(form);
     }
 
     @Transactional

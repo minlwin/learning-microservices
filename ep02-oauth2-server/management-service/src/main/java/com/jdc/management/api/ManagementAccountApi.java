@@ -41,9 +41,9 @@ public class ManagementAccountApi {
 	 * <ul>
 	 * <li>Check email availability through the auth-server endpoint.</li>
 	 * <li>Create a local account with Pending status.</li>
-	 * <li>Account verification and password initialization are handled by auth-server (TODO)</li>
-	 * <li>After password initialization, auth-server publishes an activation event (TODO)</li>
-	 * <li>Consume the activation event and update status to Activated (TODO).</li>
+	 * <li>Queue an invitation event in the Management Service outbox.</li>
+	 * <li>Auth Server emails an activation link and creates an Active profile after OTP verification and password initialization.</li>
+	 * <li>Consume the activation event and update local status to Activated.</li>
 	 * </ul>
 	 * @param form management account registration details
 	 */

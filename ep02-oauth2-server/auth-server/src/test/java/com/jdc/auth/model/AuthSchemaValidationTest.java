@@ -6,6 +6,7 @@ import com.jdc.auth.model.entity.Activation;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Locale;
+import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,9 @@ class AuthSchemaValidationTest {
 			try (var entityManager = factory.getObject().createEntityManager()) {
 				entityManager.getTransaction().begin();
 				var activation = new Activation();
+				activation.setId(java.util.UUID.randomUUID());
 				activation.setEmail("invited@example.com");
+				activation.setInvitationExpiresAt(Instant.now().plusSeconds(3600));
 				entityManager.persist(activation);
 				entityManager.getTransaction().commit();
 			}

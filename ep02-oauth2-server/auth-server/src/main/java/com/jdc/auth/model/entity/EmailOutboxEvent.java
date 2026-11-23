@@ -19,11 +19,23 @@ public class EmailOutboxEvent {
 	@Column(nullable = false)
 	private String recipient;
 
+	@Column(nullable = false, length = 32)
+	private String system;
+
 	@Column(name = "invitation_url", nullable = false, length = 2048)
 	private String invitationUrl;
 
 	@Column(name = "created_at", nullable = false)
 	private Instant createdAt;
+
+	@Column(name = "next_attempt_at", nullable = false)
+	private Instant nextAttemptAt;
+
+	@Column(name = "claimed_until")
+	private Instant claimedUntil;
+
+	@Column(name = "claim_token")
+	private UUID claimToken;
 
 	@Column(name = "sent_at")
 	private Instant sentAt;
@@ -33,4 +45,7 @@ public class EmailOutboxEvent {
 
 	@Column(name = "last_error", columnDefinition = "TEXT")
 	private String lastError;
+
+	@Column(name = "dead_lettered_at")
+	private Instant deadLetteredAt;
 }

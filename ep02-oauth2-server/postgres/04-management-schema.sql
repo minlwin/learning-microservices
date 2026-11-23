@@ -46,12 +46,16 @@ CREATE TABLE management.outbox_event (
     aggregate_key VARCHAR(255) NOT NULL,
     payload TEXT NOT NULL,
     created_at TIMESTAMP(6) WITH TIME ZONE NOT NULL,
+    next_attempt_at TIMESTAMP(6) WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_until TIMESTAMP(6) WITH TIME ZONE,
+    claim_token UUID,
     published_at TIMESTAMP(6) WITH TIME ZONE,
     attempt_count INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT
+    last_error TEXT,
+    dead_lettered_at TIMESTAMP(6) WITH TIME ZONE
 );
 
 CREATE INDEX ix_management_outbox_event_pending
-    ON management.outbox_event (published_at, created_at);
+    ON management.outbox_event (published_at, dead_lettered_at, next_attempt_at, created_at);
 
 COMMIT;

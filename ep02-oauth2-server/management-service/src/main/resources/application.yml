@@ -33,6 +33,10 @@ spring:
 
 app:
   kafka:
+    management-account:
+      invitation-topic: ${MANAGEMENT_ACCOUNT_INVITATION_TOPIC:management-account-invitation.v1}
+      activated-topic: ${MANAGEMENT_ACCOUNT_ACTIVATED_TOPIC:management-account-activated.v1}
+      activated-consumer-group-id: ${MANAGEMENT_ACCOUNT_ACTIVATED_GROUP:management-service-account-activation}
     pin-lock:
       topic: ${PIN_LOCK_SETTING_TOPIC:pin-lock-setting-changed.v1}
       activity-topic: ${PIN_LOCK_ACTIVITY_TOPIC:pin-lock-activity-changed.v1}

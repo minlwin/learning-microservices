@@ -27,9 +27,9 @@ public class ActivationApi {
 	 * Requests an email verification code for management account activation.
 	 *
 	 * <p>
-	 * When an administrator creates a management user, the management service
-	 * publishes a user-created event. The authorization server handles that event,
-	 * creates an activation record, and emails an activation link to the user.
+	 * When a management user is created, Management Service publishes an invitation
+	 * event through its outbox. Auth Server creates an expiring activation record
+	 * and queues an activation link email.
 	 * </p>
 	 *
 	 * <p>
@@ -64,7 +64,7 @@ public class ActivationApi {
 	 *
 	 * <p>
 	 * The new code replaces the previous code and starts a new expiration period.
-	 * Resend restrictions and failed verification cooldowns should be enforced.
+	 * Resend restrictions and failed verification cooldowns are enforced.
 	 * </p>
 	 *
 	 * @param id the activation ID

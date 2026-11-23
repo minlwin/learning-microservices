@@ -49,6 +49,7 @@ Defaults are in [`application.yml`](src/main/resources/application.yml).
 | `CONSUMER_DB_USERNAME` | `csmuser` | Service database role. |
 | `CONSUMER_DB_PASSWORD` | `csmpass` | Development database password. |
 | `AUTH_INTROSPECTION_URI` | `http://localhost:8080/api/internal/tokens/introspect` | Live token-validation endpoint. |
+| `AUTH_EMAIL_CHECK_URI` | `http://localhost:8080/api/internal/profiles/email/check` | Auth Server Consumer-profile availability endpoint. |
 | `AUTH_ISSUER` | `http://localhost:8080` | Expected issuer. |
 | `CONSUMER_RESOURCE_ID` | `consumer-service` | Resource ID registered in auth-server. |
 | `CONSUMER_RESOURCE_SECRET` | `consumer-resource-secret` | Resource credential; must match auth-server. |
@@ -58,6 +59,8 @@ Defaults are in [`application.yml`](src/main/resources/application.yml).
 | `KAFKA_CONSUMER_GROUP_ID` | `consumer-service` | Kafka consumer group. |
 | `PIN_LOCK_ACTIVITY_TOPIC` | `pin-lock-activity-changed.v1` | PIN lock activity topic. |
 | `PIN_LOCK_ACTIVITY_CONSUMER_GROUP` | `consumer-service-pin-lock-history` | Consumer Service's independent history consumer group. |
+| `CONSUMER_ACCOUNT_APPROVED_TOPIC` | `consumer-account-approved.v1` | Approval event topic published through the Consumer outbox. |
+| `CONSUMER_ACCOUNT_REJECTED_TOPIC` | `consumer-account-rejected.v1` | Rejection event topic published through the Consumer outbox. |
 | `AUTH_PIN_LOCK_UNLOCK_URI` | `http://localhost:8080/api/internal/pin-locks/unlock` | Auth Server's internal permanent-unlock endpoint. |
 | `KAFKA_OUTBOX_FIXED_DELAY` | `1000` | Delay in milliseconds between outbox publisher polls. |
 
@@ -67,6 +70,8 @@ Custom security settings are bound to validated `AuthenticationProps` under `app
 app:
   auth:
     introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
+    email-check-uri: ${AUTH_EMAIL_CHECK_URI:http://localhost:8080/api/internal/profiles/email/check}
+    pin-lock-unlock-uri: ${AUTH_PIN_LOCK_UNLOCK_URI:http://localhost:8080/api/internal/pin-locks/unlock}
     issuer: ${AUTH_ISSUER:http://localhost:8080}
     resource-id: consumer-service
     resource-secret: ${CONSUMER_RESOURCE_SECRET:consumer-resource-secret}
@@ -84,9 +89,22 @@ Override the audience list with `AUTH_AUDIENCES` (comma-separated). Empty creden
 | DataSource, EntityManagerFactory, transaction manager | Spring Boot auto-configuration from `spring.datasource` / `spring.jpa` |
 | KafkaTemplate, producer/consumer factories, listener container factory | Spring Boot auto-configuration from `spring.kafka` |
 
-The PostgreSQL defaults use `wallet_demo`, schema `consumer`, and role `csmuser` with development password `csmpass`. Override with `CONSUMER_DB_URL`, `CONSUMER_DB_USERNAME`, and `CONSUMER_DB_PASSWORD`. Hibernate uses `ddl-auto: validate` and `open-in-view: false`; tables are created by the scripts under `postgres`. Docker init scripts run only for a new database volume, so recreate the local volume after schema changes during development.
+The PostgreSQL defaults use `wallet_demo`, schema `consumer`, and role `csmuser` with development password `csmpass`. Override with `CONSUMER_DB_URL`, `CONSUMER_DB_USERNAME`, and `CONSUMER_DB_PASSWORD`. Hibernate uses `ddl-auto: validate` and `open-in-view: false`; tables are created by the scripts under `postgres`. Docker init scripts run only for a new database volume, so recreate the local volume after schema changes during development. Under `prod` or `production`, startup rejects localhost Auth Server URLs and requires a non-local HTTPS issuer. Consumer profile checks happen before the local account creation transaction begins.
 
-Kafka defaults to `localhost:9092`, String keys/values (including JSON text), record acknowledgment, and idempotent producer settings. The listener uses its own group, `consumer-service-pin-lock-history`, so it independently receives Auth Server PIN lock activity events. It records Consumer-system activity with event-ID deduplication; temporary lock history includes `lockedUntil`, so no expiry scheduler is needed. The service also has a generic transactional outbox table, repository, and scheduled `OutboxEventPublisher` for future Consumer-produced events. Polling cadence is configurable with `KAFKA_OUTBOX_FIXED_DELAY`. No extra datasource/Kafka bean configuration is needed unless customized behavior is introduced.
+Kafka defaults to `localhost:9092`, String keys/values (including JSON text), record acknowledgment, and idempotent producer settings. The listener uses its own group, `consumer-service-pin-lock-history`, so it independently receives Auth Server PIN lock activity events. It records Consumer-system activity with event-ID deduplication; temporary lock history includes `lockedUntil`, so no expiry scheduler is needed. A transactional outbox publishes account approval and rejection events and can carry additional Consumer-produced events. Polling cadence is configurable with `KAFKA_OUTBOX_FIXED_DELAY`. No extra datasource/Kafka bean configuration is needed unless customized behavior is introduced.
+
+#### Recovering dead-lettered outbox rows
+
+After resolving the cause recorded in `last_error`, replay an individual Consumer outbox event by resetting its retry state with the event UUID:
+
+```sql
+UPDATE consumer.outbox_event
+SET dead_lettered_at = NULL, attempt_count = 0, last_error = NULL,
+    next_attempt_at = CURRENT_TIMESTAMP, claimed_until = NULL, claim_token = NULL
+WHERE id = '<event-uuid>' AND dead_lettered_at IS NOT NULL;
+```
+
+With the `prod` or `production` Spring profile, startup rejects the checked-in Consumer resource and database passwords, localhost Auth Server URLs, and a non-HTTPS issuer.
 
 Host defaults assume services run on the host and infrastructure runs in Docker Compose. For container deployments, override localhost connection addresses appropriately.
 
@@ -107,7 +125,7 @@ Host defaults assume services run on the host and infrastructure runs in Docker 
 | JDBC URL | `jdbc:postgresql://localhost:5432/wallet_demo?currentSchema=consumer` | Selects the default schema. |
 | Hibernate DDL mode | `validate` | Checks mappings without changing tables. |
 
-The role search path and JDBC currentSchema select `consumer`; Hibernate also uses `hibernate.default_schema=consumer`. Cross-service access uses APIs and future events, rather than direct reads of other services’ tables. Subsystem account UUIDs are independent of auth-profile UUIDs.
+The role search path and JDBC currentSchema select `consumer`; Hibernate also uses `hibernate.default_schema=consumer`. Cross-service access uses APIs and Kafka events, rather than direct reads of other services’ tables. Subsystem account UUIDs are independent of auth-profile UUIDs.
 
 ### Tables
 
@@ -212,9 +230,13 @@ Table constraints and indexes:
 | `aggregate_key` | `VARCHAR(255)` | No | — | — | Kafka message key, generally the aggregate identifier. |
 | `payload` | `TEXT` | No | — | — | Serialized event payload. |
 | `created_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | When the event was enqueued. |
+| `next_attempt_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | `CURRENT_TIMESTAMP` | — | Earliest instant for the next publish attempt. |
+| `claimed_until` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Lease expiry for a publisher claim. |
+| `claim_token` | `UUID` | Yes | — | — | Claim owner token used to prevent stale workers from completing a newer claim. |
 | `published_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Set after Kafka acknowledges publication. |
 | `attempt_count` | `INTEGER` | No | — | — | Number of failed publication attempts. |
 | `last_error` | `TEXT` | Yes | — | — | Most recent publication error, if any. |
+| `dead_lettered_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Set after the final failed attempt; row remains for investigation and is excluded from polling. |
 
 Table constraints and indexes:
 
@@ -222,7 +244,7 @@ Table constraints and indexes:
 | --- | --- |
 | `ck_pin_lock_history_type` | `CHECK (lock_type BETWEEN 0 AND 2)` |
 | `ix_pin_lock_history_account_lock_at` | `INDEX (account_id, lock_at)` |
-| `ix_consumer_outbox_event_pending` | `INDEX (published_at, created_at)` |
+| `ix_consumer_outbox_event_pending` | `INDEX (published_at, dead_lettered_at, next_attempt_at, created_at)` |
 
 ### Relationships and constraints
 
@@ -840,9 +862,11 @@ Run the complete project suite with `mvn clean test` from the project root. Sche
 
 ## Current boundaries
 
-Approval changes the local Consumer account only. Auth-profile activation and event publishing remain unimplemented; no Kafka events or remote account-status updates are sent.
+Approval changes the local Consumer account and writes an approval event to its transactional outbox. Auth Server consumes that event and activates the Pending profile. The consumer outbox retries failed publication and retains dead-lettered events for operational recovery.
 
-Auth-server currently issues ordinary tokens only for Active profiles. Consequently, a newly registered Pending auth profile cannot yet obtain the consumer token needed for KYC/self-registration. A dedicated, restricted onboarding credential/flow must be designed before that end-to-end signup path works. The mobile endpoints have not been made public to bypass this gap.
+Self-registration uses a restricted onboarding flow: Auth Server creates a Pending Consumer profile after email verification and password initialization, then returns a short-lived ticket that exchanges for the `consumer.onboarding` scope. That token can submit a Self registration here, but cannot call the ordinary Consumer profile API. Management approval writes an approval event; Auth Server consumes it and changes the profile to Active so normal Consumer authentication can proceed. The token used for the initial submission cannot be refreshed and stops working after approval.
+
+Management-created Consumer accounts are created locally with Applied status and registration type Management. After approval, Auth Server creates an invitation registration and sends an email through its email outbox; the invited user verifies the email and initializes a password. No initial password is required from the Management user.
 
 The included resource-security rules enforce scopes. Fine-grained management role permissions remain a separate design decision. Access-history and lock-management operations are implemented by AccessHistoryService and LockStatusService.
 

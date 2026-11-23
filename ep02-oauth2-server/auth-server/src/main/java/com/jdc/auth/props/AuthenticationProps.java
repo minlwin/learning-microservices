@@ -7,6 +7,7 @@ import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import java.util.Set;
+import java.nio.file.Path;
 import lombok.Data;
 
 @Data
@@ -24,6 +25,15 @@ public class AuthenticationProps {
 	private ProfileDefaults activation;
 	private String consumerInvitationUrl = "http://localhost:3000/consumer/registration/{id}";
 	private Duration consumerInvitationLifetime = Duration.ofDays(7);
+	private String managementActivationUrl = "http://localhost:3000/management/activation/{id}";
+	private Duration managementActivationLifetime = Duration.ofDays(7);
+	private SigningKeys signingKeys = new SigningKeys();
+
+	@Data
+	public static class SigningKeys {
+		private Path privateKeyPath = Path.of(System.getProperty("user.home"), ".wallet-demo", "auth-signing-private.pem");
+		private Path publicKeyPath = Path.of(System.getProperty("user.home"), ".wallet-demo", "auth-signing-public.pem");
+	}
 
 	public String systemForClient(String clientId) {
 		var client = clients.get(clientId);
@@ -54,8 +64,9 @@ public class AuthenticationProps {
 			var client = entry.getValue();
 			if (entry.getKey().isBlank() || client.getSystem() == null || !systems.containsKey(client.getSystem())
 					|| client.getScopes().isEmpty() || client.getScopes().stream().anyMatch(String::isBlank)
-					|| client.getAudiences().isEmpty() || client.getAudiences().stream().anyMatch(String::isBlank)) {
-				throw new IllegalStateException("Client requires a known system, scopes, and audiences: " + entry.getKey());
+					|| client.getAudiences().isEmpty() || client.getAudiences().stream().anyMatch(String::isBlank)
+					|| client.getSecret() == null || client.getSecret().isBlank()) {
+				throw new IllegalStateException("Client requires a known system, scopes, audiences, and secret: " + entry.getKey());
 			}
 		}
 		validateProfileDefaults(registration);

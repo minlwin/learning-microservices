@@ -101,8 +101,10 @@ public class RegistrationService {
 		var emailEvent = new EmailOutboxEvent();
 		emailEvent.setId(eventId);
 		emailEvent.setRecipient(email);
+		emailEvent.setSystem("Consumer");
 		emailEvent.setInvitationUrl(invitationUrl);
 		emailEvent.setCreatedAt(Instant.now());
+		emailEvent.setNextAttemptAt(emailEvent.getCreatedAt());
 		emailEvent.setAttemptCount(0);
 		emailOutboxEvents.save(emailEvent);
 	}
@@ -190,6 +192,7 @@ public class RegistrationService {
 		if(otpRecord.getStatus() == CheckStatus.Success) {
 			throw new BusinessRuleViolationException("Your email address has already been verified. You cannot request another verification code.");
 		}
+		ensureOtpSendAllowed(otpRecord);
 		checkCooldown(otpRecord);
 		var resendAfter = otpRecord.getSendAt().plusSeconds(otpProperties.getResend().getIntervalSeconds());
 		if(resendAfter.isAfter(Instant.now())) {
@@ -207,6 +210,7 @@ public class RegistrationService {
 	}
 
 	public InitializationResult initialize(UUID id, InitializationForm form) {
+		PasswordPolicy.validate(form.password());
 		// Self registrations receive a restricted, single-use onboarding ticket after
 		// initialization. Management invitations create an Active profile here because
 		// the Consumer account was already approved before the invitation was issued.
@@ -258,6 +262,7 @@ public class RegistrationService {
 			otpRecord = new OtpRecord();
 			registration.setOtpRecord(otpRecord);
 		}
+		ensureOtpSendAllowed(otpRecord);
 		var now = Instant.now();
 		var otpCode = otpService.sendForRegistration(registration.getEmail());
 		otpRecord.setOtpCode(passwordEncoder.encode(otpCode));
@@ -277,6 +282,12 @@ public class RegistrationService {
 				throw new BusinessRuleViolationException("You have reached the failed verification attempt limit. Please try again after %s.".formatted(waitTo));
 			}
 			otpRecord.setFailCount(0);
+		}
+	}
+
+	private void ensureOtpSendAllowed(OtpRecord otpRecord) {
+		if (otpRecord.getSendCount() >= otpProperties.getResend().getMaxSends()) {
+			throw new BusinessRuleViolationException("The maximum number of verification codes has been sent. Contact support for a new invitation.");
 		}
 	}
 

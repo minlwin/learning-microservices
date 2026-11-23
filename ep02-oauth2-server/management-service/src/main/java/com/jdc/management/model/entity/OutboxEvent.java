@@ -29,6 +29,15 @@ public class OutboxEvent {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "next_attempt_at", nullable = false)
+    private Instant nextAttemptAt;
+
+    @Column(name = "claimed_until")
+    private Instant claimedUntil;
+
+    @Column(name = "claim_token")
+    private UUID claimToken;
+
     @Column(name = "published_at")
     private Instant publishedAt;
 
@@ -37,4 +46,7 @@ public class OutboxEvent {
 
     @Column(name = "last_error", columnDefinition = "TEXT")
     private String lastError;
+
+    @Column(name = "dead_lettered_at")
+    private Instant deadLetteredAt;
 }

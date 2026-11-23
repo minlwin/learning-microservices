@@ -1,13 +1,13 @@
 package com.jdc.consumer.service;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import com.jdc.consumer.api.management.input.ConsumerAccountSearch;
 import com.jdc.consumer.api.management.input.ConsumerRegistrationForm;
@@ -19,12 +19,8 @@ import com.jdc.consumer.event.ConsumerAccountRejected;
 import com.jdc.consumer.exceptions.BusinessRuleViolationException;
 import com.jdc.consumer.exceptions.ResourceNotFoundException;
 import com.jdc.consumer.model.entity.Account;
-import com.jdc.consumer.model.entity.AccountAccess;
-import com.jdc.consumer.model.entity.AccountLockStatus;
 import com.jdc.consumer.model.entity.OutboxEvent;
 import com.jdc.consumer.model.query.ConsumerAccountQuery;
-import com.jdc.consumer.model.repo.AccountAccessRepo;
-import com.jdc.consumer.model.repo.AccountLockStatusRepo;
 import com.jdc.consumer.model.repo.AccountRepo;
 import com.jdc.consumer.model.repo.OutboxEventRepo;
 import com.jdc.consumer.props.KafkaProps;
@@ -38,11 +34,10 @@ import tools.jackson.databind.ObjectMapper;
 @Transactional(readOnly = true)
 public class ConsumerAccountService {
     private final AccountRepo accounts;
-    private final AccountAccessRepo accesses;
-    private final AccountLockStatusRepo locks;
     private final OutboxEventRepo outboxEvents;
     private final ConsumerAccountQuery accountQuery;
     private final AuthConsumerProfileCheckService authProfileCheck;
+    private final ConsumerAccountRegistrationService registrationService;
     private final KafkaProps kafkaProperties;
     private final ObjectMapper objectMapper;
 
@@ -62,21 +57,20 @@ public class ConsumerAccountService {
                 page, size);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void register(ConsumerRegistrationForm form) {
         if (accounts.existsByEmail(form.email())) {
             throw new BusinessRuleViolationException("A consumer account already exists for this email address.");
         }
 
         authProfileCheck.requireNoConsumerProfile(form.email());
-        register(form.name(), form.email(), form.phone(), form.dob(), form.address(),
-                Account.RegistrationType.Management);
+        registrationService.create(form);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void register(SelfRegistrationForm form) {
         authProfileCheck.requirePendingConsumerProfile(form.email());
-        register(form.name(), form.email(), form.phone(), form.dob(), form.address(), Account.RegistrationType.Self);
+        registrationService.create(form);
     }
 
     public ConsumerProfile findByUsername(String username) {
@@ -111,39 +105,6 @@ public class ConsumerAccountService {
         recordRejectionEvent(account);
     }
 
-    private Account register(String name, String email, String phone, LocalDate dob, String address,
-            Account.RegistrationType type) {
-        if (accounts.existsByEmail(email)) {
-            throw new BusinessRuleViolationException("A consumer account already exists for this email address.");
-        }
-        var now = Instant.now();
-        var account = new Account();
-        account.setName(name);
-        account.setEmail(email);
-        account.setPhone(phone);
-        account.setDateOfBirth(dob);
-        account.setAddress(address);
-        account.setRegistrationType(type);
-        account.setStatus(Account.Status.Applied);
-        account.setRegisteredAt(now);
-        account = accounts.save(account);
-
-        var access = new AccountAccess();
-        access.setAccount(account);
-        access.setStatus(AccountAccess.Status.Logout);
-        access.setStatusChangeAt(now);
-        accesses.save(access);
-        account.setAccess(access);
-
-        var lock = new AccountLockStatus();
-        lock.setAccount(account);
-        lock.setStatus(AccountLockStatus.Status.Active);
-        lock.setStatusChangeAt(now);
-        locks.save(lock);
-        account.setLockStatus(lock);
-        return account;
-    }
-
     private void recordApprovalEvent(Account account) {
         var event = new ConsumerAccountApproved(
                 UUID.randomUUID(), account.getId(), account.getEmail(), "Consumer", account.getRegistrationType().name());
@@ -153,6 +114,7 @@ public class ConsumerAccountService {
         outboxEvent.setAggregateKey(account.getId().toString());
         outboxEvent.setPayload(serialize(event));
         outboxEvent.setCreatedAt(Instant.now());
+        outboxEvent.setNextAttemptAt(outboxEvent.getCreatedAt());
         outboxEvent.setAttemptCount(0);
         outboxEvents.save(outboxEvent);
     }
@@ -166,6 +128,7 @@ public class ConsumerAccountService {
         outboxEvent.setAggregateKey(account.getId().toString());
         outboxEvent.setPayload(serialize(event));
         outboxEvent.setCreatedAt(Instant.now());
+        outboxEvent.setNextAttemptAt(outboxEvent.getCreatedAt());
         outboxEvent.setAttemptCount(0);
         outboxEvents.save(outboxEvent);
     }

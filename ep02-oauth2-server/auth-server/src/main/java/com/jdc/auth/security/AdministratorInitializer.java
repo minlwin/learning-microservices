@@ -11,6 +11,7 @@ import com.jdc.auth.model.repo.IdentityRepo;
 import com.jdc.auth.model.repo.ProfileRepo;
 import com.jdc.auth.props.AdministratorProps;
 import com.jdc.auth.props.AuthenticationProps;
+import com.jdc.auth.service.PasswordPolicy;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 
@@ -44,6 +45,7 @@ public class AdministratorInitializer implements ApplicationRunner {
 		if (username == null || username.isBlank() || password == null || password.isBlank()) {
 			throw new IllegalStateException("Administrator username and password must be configured for the first startup.");
 		}
+		PasswordPolicy.validate(password);
 
 		if (!authenticationProperties.allows(properties.getSystem(), properties.getRole())) {
 			throw new IllegalStateException("Administrator requires a configured system and permitted role.");

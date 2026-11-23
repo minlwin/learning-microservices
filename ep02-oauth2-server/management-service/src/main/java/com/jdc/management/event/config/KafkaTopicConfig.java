@@ -19,6 +19,11 @@ public class KafkaTopicConfig {
                 .replicas(properties.getReplicas())
                 .config(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_COMPACT)
                 .build();
-        return new NewTopics(pinLockSettings);
+        var managementAccount = kafkaProps.getManagementAccount();
+        var invitations = TopicBuilder.name(managementAccount.getInvitationTopic())
+                .partitions(properties.getPartitions())
+                .replicas(properties.getReplicas())
+                .build();
+        return new NewTopics(pinLockSettings, invitations);
     }
 }

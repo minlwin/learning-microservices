@@ -6,6 +6,7 @@ import lombok.Data;
 import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 
 @Data
 @Validated
@@ -40,5 +41,8 @@ public class OtpCodeProps {
 	public static class Resend {
 		@Min(1)
 		private int intervalSeconds = 60;
+		@Min(1)
+		@Max(20)
+		private int maxSends = 5;
 	}
 }

@@ -74,8 +74,13 @@ Defaults are in [`application.yml`](src/main/resources/application.yml) and targ
 | `ACCESS_TOKEN_TIME_TO_LIVE` | `10m` | Access-token lifetime |
 | `REFRESH_TOKEN_TIME_TO_LIVE` | `8h` | Refresh-token lifetime |
 | `AUTH_ISSUER` | `http://localhost:8080` | Token issuer |
+| `CONSUMER_INVITATION_URL` | `http://localhost:3000/consumer/registration/{id}` | Frontend route for a management-created Consumer invitation |
+| `CONSUMER_INVITATION_LIFETIME` | `7d` | Consumer invitation lifetime |
+| `AUTH_SIGNING_PRIVATE_KEY_PATH` | `~/.wallet-demo/auth-signing-private.pem` | Persistent RSA signing private key (mount a managed secret in production) |
+| `AUTH_SIGNING_PUBLIC_KEY_PATH` | `~/.wallet-demo/auth-signing-public.pem` | Matching RSA public key shared by Auth Server instances |
+| `OTP_MAX_SENDS` | `5` | Maximum OTP emails sent per registration or activation |
 | `ADMINISTRATOR_USERNAME` | `admin@example.com` | Initial administrator email |
-| `ADMINISTRATOR_PASSWORD` | `password` | Initial administrator password |
+| `ADMINISTRATOR_PASSWORD` | `ChangeThisLocalAdminPassword1` | Initial administrator password (change for production) |
 | `CONSUMER_CLIENT_SECRET` | `consumer-demo-secret` | Consumer OAuth client secret |
 | `MANAGEMENT_CLIENT_SECRET` | `management-demo-secret` | Management OAuth client secret |
 | `CONSUMER_RESOURCE_SECRET` | `consumer-resource-secret` | Consumer service introspection credential |
@@ -85,12 +90,27 @@ Defaults are in [`application.yml`](src/main/resources/application.yml) and targ
 | `MAIL_SMTP_AUTH` | `false` | SMTP authentication |
 | `MAIL_SMTP_STARTTLS_ENABLE` | `false` | SMTP STARTTLS |
 | `MAIL_FROM` | `no-reply@wallet-demo.local` | Sender address |
+| `MANAGEMENT_ACTIVATION_URL` | `http://localhost:3000/management/activation/{id}` | Frontend route for a management activation invitation |
+| `MANAGEMENT_ACTIVATION_LIFETIME` | `7d` | Lifetime of a management activation invitation |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
 | `KAFKA_CONSUMER_GROUP_ID` | `auth-server` | Kafka consumer group |
 | `KAFKA_OUTBOX_FIXED_DELAY` | `1000` | Delay in milliseconds between outbox publisher polls |
+| `CONSUMER_ACCOUNT_APPROVED_TOPIC` | `consumer-account-approved.v1` | Topic consumed after Consumer Service approves an account |
+| `CONSUMER_ACCOUNT_APPROVED_GROUP` | `auth-server-consumer-account-approvals` | Consumer approval-event group |
+| `CONSUMER_ACCOUNT_REJECTED_TOPIC` | `consumer-account-rejected.v1` | Topic consumed after Consumer Service rejects an account |
+| `CONSUMER_ACCOUNT_REJECTED_GROUP` | `auth-server-consumer-account-rejections` | Consumer rejection-event group |
 | `PIN_LOCK_SETTING_TOPIC` | `pin-lock-setting-changed.v1` | Topic consumed for PIN lock setting changes |
 | `PIN_LOCK_SETTING_CONSUMER_GROUP` | `auth-server-pin-lock-settings` | PIN settings consumer group; instances should share it when using the same auth database |
 | `PIN_LOCK_ACTIVITY_TOPIC` | `pin-lock-activity-changed.v1` | Topic published for PIN lock transitions |
+| `MANAGEMENT_ACCOUNT_INVITATION_TOPIC` | `management-account-invitation.v1` | Topic consumed for management account invitations and produced by Management Service |
+| `MANAGEMENT_ACCOUNT_INVITATION_GROUP` | `auth-server-management-account-invitations` | Management invitation consumer group |
+| `MANAGEMENT_ACCOUNT_ACTIVATED_TOPIC` | `management-account-activated.v1` | Topic published after management password initialization and consumed by Management Service |
+
+The `prod` and `production` Spring profiles reject the checked-in development secrets, default administrator username, localhost URLs, and the development signing-key path. Non-production startup creates a stable RSA key pair under `~/.wallet-demo/` if one is not present. For production, provision a private/public PEM key pair and set `AUTH_SIGNING_PRIVATE_KEY_PATH` and `AUTH_SIGNING_PUBLIC_KEY_PATH` to mounted secret files. Keep the same key pair available to every Auth Server instance and use a controlled rotation process. Auth Server publishes the management activation event; its versioned JSON Schema is packaged in [`src/main/resources/contracts/management-account-activated-v1.schema.json`](src/main/resources/contracts/management-account-activated-v1.schema.json). The schema documents the Kafka payload shape for consumers and event evolution; it is not currently enforced automatically at runtime.
+
+Initialization passwords must contain at least 12 characters and fit within BCrypt's 72-byte UTF-8 input limit. OTP codes expire after the configured interval, can be resent only after the configured wait, and are limited to five sends per registration or activation by default (`app.otp.resend.max-sends`).
+
+To provision an RSA signing pair, generate the private key with `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out auth-signing-private.pem`, then derive the public key with `openssl pkey -in auth-signing-private.pem -pubout -out auth-signing-public.pem`. Restrict access to the private key (for example, `chmod 600 auth-signing-private.pem`), protect it as a secret, and mount both files at the configured paths.
 
 `POSTGRES_PASSWORD` configures the container superuser; it does not change the `authuser` password defined in `01-init.sql`. Keep the SQL and application database credentials consistent when changing them.
 
@@ -99,9 +119,12 @@ Other application settings are configured directly under `app` in YAML:
 | Property | Default |
 | --- | --- |
 | `app.auth.ticket-lifetime-seconds` | 60 seconds |
+| `app.auth.management-activation-url` | `http://localhost:3000/management/activation/{id}` |
+| `app.auth.management-activation-lifetime` | 7 days |
 | `app.otp.expiration.registration` | 3 minutes |
 | `app.otp.expiration.activation` | 5 minutes |
 | `app.otp.resend.interval-seconds` | 60 seconds |
+| `app.otp.resend.max-sends` | 5 OTP sends per registration or activation |
 | `app.otp.cooldown.missing-count` | 3 failed attempts |
 | `app.otp.cooldown.waiting-duration` | 30 minutes |
 
@@ -119,6 +142,22 @@ Restart the server after changing these settings. Token response examples below 
 Custom auth-server settings are bound through `AuthenticationProps`, `AdministratorProps`, `OtpCodeProps`, `MailConfigProps`, and `KafkaProps`. `PropertiesConfig` enables mail/OTP property binding; `KafkaProps` binds `app.kafka.pin-lock` for the topic and consumer group and `app.kafka.outbox.fixed-delay` for outbox polling. Standard datasource, SMTP, and Kafka client settings remain under `spring.*` and use Spring Boot auto-configuration.
 
 The service has a generic outbox table, repository, and scheduled `OutboxEventPublisher`. `PinLockActivityService` enqueues PIN lock transition events in the same transaction as state changes. Other Auth Server business workflows can use the same outbox infrastructure. Polling cadence defaults to one second and can be changed with `KAFKA_OUTBOX_FIXED_DELAY`.
+
+#### Recovering dead-lettered outbox rows
+
+After correcting the underlying Kafka or SMTP problem, an operator can replay a specific dead-lettered row by reviewing its `last_error` and resetting its retry state. Use a database transaction and the event UUID to avoid replaying unrelated messages:
+
+```sql
+UPDATE auth.outbox_event
+SET dead_lettered_at = NULL, attempt_count = 0, last_error = NULL,
+    next_attempt_at = CURRENT_TIMESTAMP, claimed_until = NULL, claim_token = NULL
+WHERE id = '<event-uuid>' AND dead_lettered_at IS NOT NULL;
+
+UPDATE auth.email_outbox_event
+SET dead_lettered_at = NULL, attempt_count = 0, last_error = NULL,
+    next_attempt_at = CURRENT_TIMESTAMP, claimed_until = NULL, claim_token = NULL
+WHERE id = '<event-uuid>' AND dead_lettered_at IS NOT NULL;
+```
 
 Mail uses MIME messages with HTML content. Development credentials are examples; replace them for deployed environments. Client secrets belong in a trusted backend and must not be embedded in browser or mobile application code.
 
@@ -158,7 +197,8 @@ All tables below belong to the `auth` schema.
 | `identity` | `id` — UUID | Shared login identity. `username` is unique and currently contains an email address. |
 | `profile` | `id` — UUID | Per-system credentials and access state: `identity_id`, `system`, `role`, encoded `password`, `status`, and `token_version`. |
 | `registration` | `id` — UUID | Consumer signup and email verification: `email`, `registered_at`, `initialized_at`, and embedded OTP fields. |
-| `activation` | `id` — UUID | Management activation: `email`, `initialized_at`, and nullable OTP fields before the first code request. |
+| `activation` | `id` — UUID | Management activation keyed by the Management Service account UUID: `email`, `invitation_expires_at`, `initialized_at`, and nullable OTP fields before the first code request. |
+| `email_outbox_event` | `id` — UUID | Retryable invitation emails for Consumer registration and Management activation; includes recipient, system, link, and send status. |
 | `login_ticket` | `id` — UUID | One-time login credentials: unique `token_hash`, `profile_id`, `client_id`, `token_version`, `expires_at`, and `consumed_at`. |
 | `pin_lock_setting` | `system` — VARCHAR(255) | Latest setting snapshot replicated from Management Service, including version and deleted flag. |
 | `pin_lock_state` | `profile_id` — UUID | Current PIN lock status and failed-attempt count for a system-specific profile. Kept separate from `profile.status`. |
@@ -262,9 +302,13 @@ Table constraints and indexes:
 | `aggregate_key` | `VARCHAR(255)` | No | — | — | Kafka message key, generally the aggregate identifier. |
 | `payload` | `TEXT` | No | — | — | Serialized event payload. |
 | `created_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | When the event was enqueued. |
+| `next_attempt_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | `CURRENT_TIMESTAMP` | — | Earliest instant for the next publish attempt. |
+| `claimed_until` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Lease expiry for a publisher claim. |
+| `claim_token` | `UUID` | Yes | — | — | Claim owner token used to prevent stale workers from completing a newer claim. |
 | `published_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Set after Kafka acknowledges publication. |
 | `attempt_count` | `INTEGER` | No | — | — | Number of failed publication attempts. |
 | `last_error` | `TEXT` | Yes | — | — | Most recent publication error, if any. |
+| `dead_lettered_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Set after the final failed attempt; the row remains for investigation but is excluded from polling. |
 
 #### `auth.registration`
 
@@ -292,8 +336,9 @@ Table constraints and indexes:
 
 | Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
 | --- | --- | --- | --- | --- | --- |
-| `id` | `UUID` | No | — | PK | Record UUID generated by Hibernate; no database UUID default. |
+| `id` | `UUID` | No | — | PK | Management account UUID carried by the invitation event; correlates activation with the local account. |
 | `email` | `VARCHAR(255)` | No | — | — | Email associated with this record. |
+| `invitation_expires_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Expiration instant for this management activation invitation. |
 | `initialized_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Password-initialization instant; null until initialization succeeds. |
 | `otp_code` | `VARCHAR(255)` | Yes | — | — | BCrypt-encoded email verification code. |
 | `status` | `SMALLINT` | Yes | — | CHECK (status BETWEEN 0 AND 2) | OTP state: 0 Send, 1 Success, 2 Fail. |
@@ -308,6 +353,23 @@ Table constraints and indexes:
 | Name | Definition |
 | --- | --- |
 | `ck_activation_otp_status` | `CHECK (status BETWEEN 0 AND 2)` |
+
+#### `auth.email_outbox_event`
+
+| Column | PostgreSQL Type | Nullable | Default | Key / Constraints | Definition |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `UUID` | No | — | PK | Email event ID used to avoid duplicate invitation rows. |
+| `recipient` | `VARCHAR(255)` | No | — | — | Destination email address. |
+| `system` | `VARCHAR(32)` | No | — | — | Invitation type: Consumer or Management. |
+| `invitation_url` | `VARCHAR(2048)` | No | — | — | Link inserted into the invitation email. |
+| `created_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | Email event creation instant. |
+| `next_attempt_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | `CURRENT_TIMESTAMP` | — | Earliest instant for the next delivery attempt. |
+| `claimed_until` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Lease expiry for a mail publisher claim. |
+| `claim_token` | `UUID` | Yes | — | — | Claim owner token used to prevent stale workers from completing a newer claim. |
+| `sent_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Successful delivery instant; null while pending or retrying. |
+| `attempt_count` | `INTEGER` | No | `0` | — | Number of delivery failures. |
+| `last_error` | `TEXT` | Yes | — | — | Most recent delivery error. |
+| `dead_lettered_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Set after the final failed attempt; the row remains for investigation but is excluded from polling. |
 
 #### `auth.login_ticket`
 
@@ -444,7 +506,7 @@ Then run these commands inside `psql`:
 \d auth.oauth2_authorization
 ```
 
-For schema changes during development, use the volume reset described under **Run locally**. No migration files or Hibernate table creation are used. Database backup, expired-record cleanup, and persistent signing-key storage remain deployment tasks; RSA signing keys are not stored in these tables.
+For schema changes during development, use the volume reset described under **Run locally**. No migration files or Hibernate table creation are used. RSA signing keys are loaded from PEM files outside PostgreSQL; production deployments must provision, protect, share, back up, and rotate those files independently of the database.
 
 ## Request conventions
 
@@ -488,6 +550,7 @@ Client and resource credentials are separate. See [consumer-service](../consumer
 | Activation | POST | `/api/activate/{id}/initialize` | Initialize the Management password. |
 | Internal Token | POST | `/api/internal/tokens/introspect` | Validate token with live profile state. |
 | Internal Profile | POST | `/api/internal/profiles/email/check` | Check profile email duplication within a system. |
+| Internal PIN Lock | POST | `/api/internal/pin-locks/unlock` | Release a permanent PIN lock for an authorized system. |
 
 ### Authentication and tokens
 
@@ -796,7 +859,7 @@ The self-registration client exchanges `loginTicket` using the configured `consu
 
 ### Management activation
 
-Requires an existing unused activation record. Event-driven record creation and link delivery are not implemented. Initialization creates an Active Management profile under the default policy.
+Management Service creates a local Pending account and stores a versioned invitation event in its outbox in the same transaction. Auth Server consumes that event, creates an activation record keyed by the management account UUID, and queues an activation email in its own email outbox. Invitations expire after `app.auth.management-activation-lifetime` (7 days by default). After OTP verification and password initialization, Auth Server creates an Active Management profile and stores an activation-completed event in its Kafka outbox. Management Service consumes that event and changes its local account to Activated. Both event consumers handle duplicate delivery idempotently.
 
 #### Request activation OTP
 
@@ -806,7 +869,7 @@ Requires an existing unused activation record. Event-driven record creation and 
 
 | Field | Type | Location | Required | Sample Value | Definition |
 | --- | --- | --- | --- | --- | --- |
-| `id` | `UUID` | Path | Yes | `550e8400-e29b-41d4-a716-446655440000` | activation record UUID; independent of the profile ID. |
+| `id` | `UUID` | Path | Yes | `550e8400-e29b-41d4-a716-446655440000` | Management account UUID used as the activation record ID. |
 
 Request body: none.
 
@@ -834,7 +897,7 @@ HTTP/1.1 200 OK
 
 | Field | Type | Location | Required | Sample Value | Definition |
 | --- | --- | --- | --- | --- | --- |
-| `id` | `UUID` | Path | Yes | `550e8400-e29b-41d4-a716-446655440000` | activation record UUID; independent of the profile ID. |
+| `id` | `UUID` | Path | Yes | `550e8400-e29b-41d4-a716-446655440000` | Management account UUID used as the activation record ID. |
 
 ##### Request Form — `OtpForm`
 
@@ -868,7 +931,7 @@ HTTP/1.1 200 OK
 
 | Field | Type | Location | Required | Sample Value | Definition |
 | --- | --- | --- | --- | --- | --- |
-| `id` | `UUID` | Path | Yes | `550e8400-e29b-41d4-a716-446655440000` | activation record UUID; independent of the profile ID. |
+| `id` | `UUID` | Path | Yes | `550e8400-e29b-41d4-a716-446655440000` | Management account UUID used as the activation record ID. |
 
 Request body: none.
 
@@ -898,7 +961,7 @@ HTTP/1.1 200 OK
 
 | Field | Type | Location | Required | Sample Value | Definition |
 | --- | --- | --- | --- | --- | --- |
-| `id` | `UUID` | Path | Yes | `550e8400-e29b-41d4-a716-446655440000` | activation record UUID; independent of the profile ID. |
+| `id` | `UUID` | Path | Yes | `550e8400-e29b-41d4-a716-446655440000` | Management account UUID used as the activation record ID. |
 
 ##### Request Form — `InitializationForm`
 
@@ -1021,13 +1084,17 @@ curl -X POST "${BASE_URL}/api/internal/profiles/email/check" \
 
 | Field | Type | Sample Value | Definition |
 | --- | --- | --- | --- |
-| `exists` | `boolean` | `true` | Profile exists for this identity email and system, regardless of lifecycle state. |
+| `identityExists` | `boolean` | `true` | An identity exists for the email address, including identities used by another system. |
+| `profileExists` | `boolean` | `true` | A profile exists for this email address in the requested system, regardless of lifecycle state. |
+| `profileStatus` | `String (nullable)` | `Active` | Status of the matching profile; null when the requested system has no profile. |
 
 Response: `200 OK`, `application/json`, with `Cache-Control: no-store`.
 
 ```json
 {
-  "exists": true
+  "identityExists": true,
+  "profileExists": true,
+  "profileStatus": "Active"
 }
 ```
 
@@ -1035,15 +1102,36 @@ No matching profile returns:
 
 ```json
 {
-  "exists": false
+  "identityExists": false,
+  "profileExists": false,
+  "profileStatus": null
 }
 ```
 
 Pending, Active, Locked, and Closed profiles count as existing. An identity used only in another system, or registration/activation records without a profile, does not count. This check does not reserve an email; final initialization must enforce uniqueness. Management Service and Consumer Service call it before account creation; the final profile constraint enforces uniqueness across concurrent requests. Consumer approval and rejection events are consumed from versioned Kafka topics. Management-created Consumer invitations are written to an email outbox and retried until the mail send succeeds.
 
+### Internal permanent PIN unlock
+
+`POST /api/internal/pin-locks/unlock` requires HTTP Basic resource credentials. The resource must list the requested system under `app.auth.resources.<resource-id>.pin-lock-systems`.
+
+| Field | Type | Required | Sample | Definition |
+| --- | --- | --- | --- | --- |
+| `system` | `String` | Yes | `Consumer` | Configured profile system to unlock. |
+| `username` | `String` | Yes | `alice@example.com` | Identity username whose permanent PIN lock should be released. |
+| `requestedBy` | `String` | Yes | `<management-profile-id>` | Management actor recorded in lock history. |
+
+```bash
+curl -X POST "${BASE_URL}/api/internal/pin-locks/unlock" \
+  -u "${RESOURCE_ID}:${RESOURCE_SECRET}" \
+  -H 'Content-Type: application/json' \
+  -d '{"system":"Consumer","username":"alice@example.com","requestedBy":"<management-profile-id>"}'
+```
+
+Success returns `200 OK` with an empty body. The operation changes Auth Server state and publishes a PIN lock activity event for the resource services' history projections.
+
 ## Error responses
 
-Registration, activation, and authentication endpoints allow unauthenticated requests. Logout requires a bearer access token. Internal introspection and email checks require resource-server credentials; email checks additionally enforce explicit system permissions. `/oauth2/token` requires OAuth client authentication using HTTP Basic.
+Registration, activation, and authentication endpoints allow unauthenticated requests. Logout requires a bearer access token. Internal introspection, email checks, and PIN unlock require resource-server credentials. Email checks and PIN unlock additionally enforce explicit per-resource system permissions. `/oauth2/token` requires OAuth client authentication using HTTP Basic.
 
 Other authorization-server endpoints are disabled, including the hosted login form, authorization redirect endpoint, standard introspection and revocation endpoints, discovery metadata, and public JWK endpoint. OpenID Connect ID tokens are not issued. Security is stateless and CSRF protection is disabled for these API flows.
 
@@ -1245,7 +1333,7 @@ app:
     role: Administrator
 ```
 
-For example, changing `activation.system` to `Merchant` and `activation.role` to `MerchantOperator` makes the existing activation workflow create Active Merchant profiles. It still requires an existing activation record; Kafka-driven record creation is not implemented. Registration creates Pending profiles. Administrator settings apply only when bootstrapping an empty system.
+For example, changing `activation.system` to `Merchant` and `activation.role` to `MerchantOperator` makes the existing activation workflow create Active Merchant profiles. It still requires an activation record. The built-in Kafka invitation listener creates records only for the Management account invitation contract; adding another system's invitation event requires a corresponding producer and listener. Registration creates Pending profiles. Administrator settings apply only when bootstrapping an empty system.
 
 Each existing workflow has one configured target. Changing its target changes the behavior of that workflow for all users; it does not add a separate Merchant endpoint alongside the existing Consumer or Management endpoint. Supporting simultaneous onboarding flows requires additional implementation.
 
@@ -1350,9 +1438,9 @@ The tests use mocks, test security configurations, and embedded H2 for JDBC toke
 
 ## Current boundaries
 
-- Client registrations and OAuth authorizations use shared PostgreSQL storage. RSA signing keys are still generated at startup; persistent shared keys and key rotation remain necessary for a production signing-key lifecycle. Current internal introspection validates persisted token records rather than JWT signatures.
+- Client registrations and OAuth authorizations use shared PostgreSQL storage. Non-production startup creates a persistent RSA PEM key pair under `~/.wallet-demo/`; production requires provisioned shared key files. Key rotation remains an operational process. Current internal introspection validates persisted token records rather than JWT signatures.
 - Auth Server consumes versioned PIN lock setting events from Management Service and stores the latest snapshot in `auth.pin_lock_setting`. Management Service uses a transactional outbox and a compacted topic. `PinLockActivityService` tracks PIN failures, applies temporary/permanent thresholds, releases temporary locks lazily on the next PIN operation, and publishes lock or permanent-unlock transitions through the auth outbox. Consumer and Management Services consume those transitions and keep idempotent local history. Consumer account approvals and rejections also use transactional outboxes. Auth Server activates or closes Pending self-registration profiles and creates invitation registrations for management-created accounts. Invitation email delivery uses a retryable Auth Server outbox. The current PIN lock setting has no separate counting-window fields. The existing username/password login is separate; a PIN verifier must call `checkBeforePinAttempt`, `recordFailedAttempt`, and `recordSuccessfulAttempt` around its own PIN check.
-- Public API routes use a broad `/api/**` permit rule after the dedicated logout and internal security chains. New sensitive endpoints need explicit authorization rules.
-- Password initialization currently requires a nonblank password; a stronger password policy is not implemented.
+- Public authentication, registration, and activation routes permit only their documented POST endpoints. Other routes are denied; logout and internal resource APIs have dedicated security chains.
+- Password initialization and first administrator bootstrap require at least 12 characters and reject passwords exceeding BCrypt's 72-byte UTF-8 limit.
 
 Further examples: [authentication](../readme/authentication-endpoint.md), [token endpoint](../readme/token-endpoint.md), [logout](../readme/logout.md), and [administrator bootstrap](../readme/administrator-bootstrap.md).

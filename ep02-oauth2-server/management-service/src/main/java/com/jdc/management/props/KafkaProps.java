@@ -19,6 +19,9 @@ public class KafkaProps {
     private PinLock pinLock = new PinLock();
 
     @Valid
+    private ManagementAccount managementAccount = new ManagementAccount();
+
+    @Valid
     private Outbox outbox = new Outbox();
 
     @Data
@@ -37,6 +40,18 @@ public class KafkaProps {
 
         @Min(1)
         private int replicas = 1;
+    }
+
+    @Data
+    public static class ManagementAccount {
+        @NotBlank
+        private String invitationTopic = "management-account-invitation.v1";
+
+        @NotBlank
+        private String activatedTopic = "management-account-activated.v1";
+
+        @NotBlank
+        private String activatedConsumerGroupId = "management-service-account-activation";
     }
 
     @Data

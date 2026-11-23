@@ -48,6 +48,7 @@ Defaults are in [`application.yml`](src/main/resources/application.yml).
 | `MANAGEMENT_DB_USERNAME` | `mnguser` | Service database role. |
 | `MANAGEMENT_DB_PASSWORD` | `mngpass` | Development database password. |
 | `AUTH_INTROSPECTION_URI` | `http://localhost:8080/api/internal/tokens/introspect` | Live token-validation endpoint. |
+| `AUTH_EMAIL_CHECK_URI` | `http://localhost:8080/api/internal/profiles/email/check` | Auth Server Management-profile availability endpoint. |
 | `AUTH_ISSUER` | `http://localhost:8080` | Expected issuer. |
 | `MANAGEMENT_RESOURCE_ID` | `management-service` | Resource ID registered in auth-server. |
 | `MANAGEMENT_RESOURCE_SECRET` | `management-resource-secret` | Resource credential; must match auth-server. |
@@ -62,7 +63,9 @@ Defaults are in [`application.yml`](src/main/resources/application.yml).
 | `PIN_LOCK_ACTIVITY_TOPIC` | `pin-lock-activity-changed.v1` | PIN lock activity topic. |
 | `PIN_LOCK_ACTIVITY_CONSUMER_GROUP` | `management-service-pin-lock-history` | Management Service's independent history consumer group. |
 | `AUTH_PIN_LOCK_UNLOCK_URI` | `http://localhost:8080/api/internal/pin-locks/unlock` | Auth Server's internal permanent-unlock endpoint. |
-| `AUTH_EMAIL_CHECK_URI` | `http://localhost:8080/api/internal/profiles/email/check` | Management email availability endpoint. |
+| `MANAGEMENT_ACCOUNT_INVITATION_TOPIC` | `management-account-invitation.v1` | Invitation event published through the Management outbox. |
+| `MANAGEMENT_ACCOUNT_ACTIVATED_TOPIC` | `management-account-activated.v1` | Activation event consumed from Auth Server. |
+| `MANAGEMENT_ACCOUNT_ACTIVATED_GROUP` | `management-service-account-activation` | Consumer group for management-account activation events. |
 
 Custom security settings are bound to validated `AuthenticationProps` under `app.auth`:
 
@@ -71,6 +74,7 @@ app:
   auth:
     introspection-uri: ${AUTH_INTROSPECTION_URI:http://localhost:8080/api/internal/tokens/introspect}
     email-check-uri: ${AUTH_EMAIL_CHECK_URI:http://localhost:8080/api/internal/profiles/email/check}
+    pin-lock-unlock-uri: ${AUTH_PIN_LOCK_UNLOCK_URI:http://localhost:8080/api/internal/pin-locks/unlock}
     issuer: ${AUTH_ISSUER:http://localhost:8080}
     resource-id: management-service
     resource-secret: ${MANAGEMENT_RESOURCE_SECRET:management-resource-secret}
@@ -91,9 +95,22 @@ Override the audience list with `AUTH_AUDIENCES` (comma-separated). Empty creden
 | Compacted PIN setting topic declaration | `KafkaTopicConfig` |
 | PIN lock activity event listener | `PinLockActivityEventListener`, with its own consumer group |
 
-The PostgreSQL defaults use `wallet_demo`, schema `management`, and role `mnguser` with development password `mngpass`. Override with `MANAGEMENT_DB_URL`, `MANAGEMENT_DB_USERNAME`, and `MANAGEMENT_DB_PASSWORD`. Hibernate uses `ddl-auto: validate` and `open-in-view: false`; tables are created by the scripts under `postgres`. Docker init scripts run only for a new database volume, so recreate the local volume after schema changes during development.
+The PostgreSQL defaults use `wallet_demo`, schema `management`, and role `mnguser` with development password `mngpass`. Override with `MANAGEMENT_DB_URL`, `MANAGEMENT_DB_USERNAME`, and `MANAGEMENT_DB_PASSWORD`. Hibernate uses `ddl-auto: validate` and `open-in-view: false`; tables are created by the scripts under `postgres`. Docker init scripts run only for a new database volume, so recreate the local volume after schema changes during development. Under `prod` or `production`, startup rejects localhost Auth Server URLs and requires a non-local HTTPS issuer.
 
 Kafka defaults to `localhost:9092`, String keys/values (including JSON text), record acknowledgment, and idempotent producer settings. `KafkaProps` binds topic settings, the management history listener group, and outbox polling interval from `app.kafka`. Management Service creates the compacted PIN setting topic and publishes setting events through its outbox. It also consumes PIN lock activity with its own group and records Management-system history idempotently. Permanent unlock requests go to Auth Server; temporary locks expire by `lockedUntil` when the next PIN operation is checked, without a scheduler.
+
+#### Recovering dead-lettered outbox rows
+
+After resolving the cause recorded in `last_error`, replay an individual Management outbox event by resetting its retry state with the event UUID:
+
+```sql
+UPDATE management.outbox_event
+SET dead_lettered_at = NULL, attempt_count = 0, last_error = NULL,
+    next_attempt_at = CURRENT_TIMESTAMP, claimed_until = NULL, claim_token = NULL
+WHERE id = '<event-uuid>' AND dead_lettered_at IS NOT NULL;
+```
+
+Management Service publishes the management account invitation event. Its versioned JSON Schema is packaged in [`src/main/resources/contracts/management-account-invitation-v1.schema.json`](src/main/resources/contracts/management-account-invitation-v1.schema.json). The schema documents the Kafka payload shape for Auth Server and event evolution; it is not currently enforced automatically at runtime.
 
 Host defaults assume services run on the host and infrastructure runs in Docker Compose. For container deployments, override localhost connection addresses appropriately.
 
@@ -132,7 +149,7 @@ To add a system, append its case-sensitive name and restart management-service. 
 | JDBC URL | `jdbc:postgresql://localhost:5432/wallet_demo?currentSchema=management` | Selects the default schema. |
 | Hibernate DDL mode | `validate` | Checks mappings without changing tables. |
 
-The role search path and JDBC currentSchema select `management`; Hibernate also uses `hibernate.default_schema=management`. Cross-service access uses APIs and future events, rather than direct reads of other services’ tables. Subsystem account UUIDs are independent of auth-profile UUIDs.
+The role search path and JDBC currentSchema select `management`; Hibernate also uses `hibernate.default_schema=management`. Cross-service access uses APIs and Kafka events rather than direct reads of other services’ tables. Subsystem account UUIDs are independent of auth-profile UUIDs.
 
 ### Tables
 
@@ -197,9 +214,13 @@ Table constraints and indexes:
 | `aggregate_key` | `VARCHAR(255)` | No | — | — | System name used as the Kafka record key. |
 | `payload` | `TEXT` | No | — | — | JSON representation of the setting-change event. |
 | `created_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | — | — | When the outbox event was created. |
+| `next_attempt_at` | `TIMESTAMP(6) WITH TIME ZONE` | No | `CURRENT_TIMESTAMP` | — | Earliest time for the next publish attempt. |
+| `claimed_until` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Lease expiry for a publisher claim. |
+| `claim_token` | `UUID` | Yes | — | — | Claim owner token used to prevent stale workers from completing a newer claim. |
 | `published_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | When Kafka acknowledged publication; null means pending. |
 | `attempt_count` | `INTEGER` | No | `0` | — | Number of recorded publish failures. |
 | `last_error` | `TEXT` | Yes | — | — | Most recent publish error, if any. |
+| `dead_lettered_at` | `TIMESTAMP(6) WITH TIME ZONE` | Yes | — | — | Set after the final failed attempt; row is excluded from polling and retained for investigation. |
 
 ### Relationships and constraints
 
@@ -217,7 +238,7 @@ The API and event use corrected names tempLockWaitMinutes and permanentLockFails
 
 ### PIN lock setting event publication
 
-Creating or updating a setting stores a versioned `PinLockSettingChangedEvent` in `management.outbox_event` in the same database transaction as the setting. A scheduled publisher sends pending records to the compacted `pin-lock-setting-changed.v1` topic using the system as the Kafka key. Successful sends are marked published; failures remain pending and are retried. A crash after Kafka accepts an event but before the outbox row is marked can produce a duplicate, so consumers must be idempotent.
+Creating or updating a setting stores a versioned `PinLockSettingChangedEvent` in `management.outbox_event` in the same database transaction as the setting. A publisher leases one due event at a time, then sends it to the compacted `pin-lock-setting-changed.v1` topic using the system as the Kafka key. Failures use capped exponential backoff and are retained as dead-lettered rows after ten attempts. A crash after Kafka accepts an event but before the outbox row is marked can still produce a duplicate, so consumers must be idempotent.
 
 ### Security data and timestamps
 
@@ -256,7 +277,7 @@ For authenticated management users maintaining system PIN lock policies.
 | Resource | Method | Endpoint | Description |
 | --- | --- | --- | --- |
 | Account | GET | `/api/accounts` | Search management accounts. |
-| Account | POST | `/api/accounts` | Create a Pending management account. |
+| Account | POST | `/api/accounts` | Create a Pending management account and queue its activation invitation. |
 | Account | PUT | `/api/accounts/{id}` | Update account name and phone. |
 | PIN Lock History | GET | `/api/accounts/pin-lock` | Search PIN lock activity for management accounts. |
 | PIN Lock History | PUT | `/api/accounts/pin-lock/{id}/unlock` | Request Auth Server to unlock a permanent PIN lock. |
@@ -347,7 +368,7 @@ Response: `200 OK`, `application/json`. Principal page fields are shown; Spring 
 
 `POST /api/accounts`
 
-Checks local email duplication, then calls auth-server’s internal email-check endpoint with system=Management using resource credentials. Creates a Pending account and records registeredAt. The remote check is advisory; final auth-profile creation must enforce uniqueness again. Invitation publishing and activation consumption remain TODOs; this endpoint does not send verification email or create an auth profile.
+Checks local email duplication, then calls Auth Server’s internal email-check endpoint with system=Management using resource credentials. Creates a Pending account and records `registeredAt`. In the same transaction it stores a versioned invitation event in the Management Service outbox. Auth Server creates an expiring activation record and sends the invitation email. After the user verifies the email and initializes a password, Auth Server creates an Active Management profile and publishes an activation event; Management Service consumes it and records `Activated` plus `activatedAt`. No management approval is required. Email changes still require a separate identity-synchronization workflow.
 
 ##### Request Form — `AccountRegistrationForm`
 
@@ -735,6 +756,8 @@ Run the complete project suite with `mvn clean test` from the project root. Sche
 
 These APIs store policy and publish versioned change events for Auth Server. Failure counting, lock enforcement, and automatic unlocking are Auth Server responsibilities. No delete endpoint is provided, although reads exclude deleted records and creation can restore them.
 
-Management account search, local creation, and updates are implemented. Accounts remain Pending until the future activation-event consumer is implemented. Creation does not yet start the invitation workflow. Email changes require a separate identity-synchronization workflow. There are no Consumer Mobile endpoints in this service; those belong to consumer-service.
+Management account search, creation, updates, invitation publishing, and activation-event consumption are implemented. Accounts remain Pending until users complete activation from their email invitation. Email changes require a separate identity-synchronization workflow. There are no Consumer Mobile endpoints in this service; those belong to consumer-service.
+
+With the `prod` or `production` Spring profile, startup rejects the checked-in Management resource and database passwords, localhost Auth Server URLs, and a non-HTTPS issuer.
 
 Security rules enforce scopes. Fine-grained management role permissions remain a separate design decision.

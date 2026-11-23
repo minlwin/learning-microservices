@@ -30,6 +30,7 @@ public class PinLockSettingOutboxService {
         outboxEvent.setAggregateKey(event.system());
         outboxEvent.setPayload(toJson(event));
         outboxEvent.setCreatedAt(Instant.now());
+        outboxEvent.setNextAttemptAt(outboxEvent.getCreatedAt());
         outboxEvent.setAttemptCount(0);
         repository.save(outboxEvent);
     }

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.jdc.auth.AuthTestProperties;
 import com.jdc.auth.props.OtpCodeProps;
+import com.jdc.auth.event.service.ManagementAccountActivationOutboxService;
 
 import com.jdc.auth.api.input.InitializationForm;
 import com.jdc.auth.api.input.OtpForm;
@@ -33,18 +34,22 @@ class ActivationServiceTest {
 	private final ProfileRepo profiles = mock(ProfileRepo.class);
 	private final PasswordEncoder encoder = mock(PasswordEncoder.class);
 	private final OtpCodeService mail = mock(OtpCodeService.class);
+	private final ManagementAccountActivationOutboxService activationOutbox =
+			mock(ManagementAccountActivationOutboxService.class);
 	private ActivationService service;
 	private Activation activation;
 	private OtpRecord otp;
 
 	@BeforeEach
 	void setup() {
-		service = new ActivationService(AuthTestProperties.create(), new OtpCodeProps(), activations, identities, profiles, encoder, mail);
+		service = new ActivationService(AuthTestProperties.create(), new OtpCodeProps(), activations, identities,
+				profiles, encoder, mail, activationOutbox);
 
 
 
 		activation = new Activation();
 		activation.setId(UUID.randomUUID());
+		activation.setInvitationExpiresAt(Instant.now().plusSeconds(3600));
 		otp = new OtpRecord();
 		otp.setStatus(CheckStatus.Send);
 		otp.setOtpCode("encoded");
@@ -100,12 +105,13 @@ class ActivationServiceTest {
 	void preventsRepeatedInitialization() {
 		activation.setInitializedAt(Instant.now());
 		assertThrows(BusinessRuleViolationException.class,
-				() -> service.initialize(activation.getId(), new InitializationForm("password")));
+				() -> service.initialize(activation.getId(), new InitializationForm("StrongPassword123")));
 		verifyNoInteractions(profiles);
 	}
 	@Test
 	void sendsFirstCodeAndStoresItsHash() {
 		activation.setEmail("manager@example.com");
+		activation.setInvitationExpiresAt(Instant.now().plusSeconds(3600));
 		activation.setOtpRecord(null);
 
 		when(mail.sendForActivation("manager@example.com", 5)).thenReturn("123456");
@@ -124,13 +130,13 @@ class ActivationServiceTest {
 		otp.setStatus(CheckStatus.Success);
 		var identity = new Identity();
 		when(identities.findOneByUsername("manager@example.com")).thenReturn(Optional.of(identity));
-		when(encoder.encode("password")).thenReturn("hashed-password");
+		when(encoder.encode("StrongPassword123")).thenReturn("hashed-password");
 		when(profiles.save(any(Profile.class))).thenAnswer(invocation -> {
 			Profile profile = invocation.getArgument(0);
 			profile.setId(UUID.randomUUID());
 			return profile;
 		});
-		var result = service.initialize(activation.getId(), new InitializationForm("password"));
+		var result = service.initialize(activation.getId(), new InitializationForm("StrongPassword123"));
 		var captor = ArgumentCaptor.forClass(Profile.class);
 		verify(profiles).save(captor.capture());
 		assertEquals("Management", captor.getValue().getSystem());
