@@ -16,15 +16,21 @@ Manages management accounts, PIN lock policies, and configured client systems. D
 
 ## Run locally
 
-Requires Java 25, Maven, and Docker Compose. From the project root:
+Requires Docker with Docker Compose for container mode, or Java 25 and Maven for host-run development. From the project root, start all containers with:
 
 ```bash
-export POSTGRES_PASSWORD=postgres
-docker compose up -d
+docker compose up --build -d
+```
+
+To run this module from Maven while keeping only the infrastructure in Docker:
+
+```bash
+docker compose stop management-service
+docker compose up -d postgres kafka mailpit
 mvn -pl management-service spring-boot:run
 ```
 
-Default base URL: `http://localhost:8082`. Auth-server must be running for authenticated API requests and account email-availability checks. See [auth-server](../auth-server/README.md) for obtaining tokens. Set `SERVER_PORT` separately for each service process.
+Default base URL: `http://localhost:8082`. The Compose service uses `auth-server:8080` for internal Auth Server calls; host-run mode uses the localhost defaults. Auth Server must be running for authenticated API requests and account email-availability checks. See [auth-server](../auth-server/README.md) for obtaining tokens. Set `SERVER_PORT` separately for each host-run service process.
 
 PostgreSQL initializes `postgres/01-init.sql` and `postgres/04-management-schema.sql` only when its database volume is empty. Editing SQL does not modify an existing database. Hibernate uses `ddl-auto: validate`; no migration or automatic table creation/update is enabled. During this planning phase, update the initialization SQL directly. If you intentionally recreate the development database, `docker compose down -v` removes all Compose volumes, including database and Kafka data.
 

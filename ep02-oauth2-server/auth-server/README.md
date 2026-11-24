@@ -19,15 +19,22 @@ Clients use their own login screen, submit credentials to `/api/auth`, and excha
 
 ## Run locally
 
-Requirements: JDK 25, Maven, and Docker Compose. Run these commands from the project root (`ep02-oauth2-server`):
+Requirements: Docker with Docker Compose for container mode, or JDK 25 and Maven for host-run development. Run these commands from the project root (`ep02-oauth2-server`):
 
 ```bash
-# Set the PostgreSQL container's superuser password for this shell.
-export POSTGRES_PASSWORD=postgres
+# Start all services and infrastructure as containers.
+docker compose up --build -d
+```
 
-docker compose up -d
+To run this module from Maven while keeping only the infrastructure in Docker, use:
+
+```bash
+docker compose stop auth-server
+docker compose up -d postgres kafka mailpit
 mvn -pl auth-server spring-boot:run
 ```
+
+The Auth Server container is exposed at `http://localhost:8080`. Its signing keys are stored in the `auth_signing_keys` named volume so tokens remain verifiable after container recreation. The Compose issuer is `http://auth-server:8080` for internal container-to-container calls; host-run mode keeps the `http://localhost:8080` default.
 
 Each service has a separate default HTTP port:
 

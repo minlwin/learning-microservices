@@ -27,30 +27,26 @@ Docker Compose provides PostgreSQL, Kafka, and Mailpit for local development.
 
 ## Start locally
 
-Requirements: Java 25, Maven, and Docker Compose. From the project root, start the infrastructure:
+Requirements: Docker with Docker Compose. From the project root, build and start the complete local environment, including all three Spring Boot services:
 
 ```bash
-export POSTGRES_PASSWORD=postgres
-docker compose up -d
+docker compose up --build -d
+docker compose ps
 ```
 
-Run each application in a separate terminal:
+The applications are available at `http://localhost:8080` (Auth Server), `http://localhost:8081` (Consumer Service), and `http://localhost:8082` (Management Service). PostgreSQL, Kafka, and Mailpit are also available on the local ports listed above. Compose uses container DNS names for service-to-service traffic and keeps published ports bound to `127.0.0.1`.
+
+For the Java hot-reload development workflow, start only the infrastructure containers and run the service applications from Maven. Do not start a service both ways at the same time because they use the same ports:
 
 ```bash
+docker compose stop auth-server consumer-service management-service
+docker compose up -d postgres kafka mailpit
 mvn -pl auth-server spring-boot:run
 ```
 
-```bash
-mvn -pl consumer-service spring-boot:run
-```
+Open separate terminals for `mvn -pl consumer-service spring-boot:run` and `mvn -pl management-service spring-boot:run` as needed. This host-run mode uses the `localhost` configuration defaults. For a full Maven build, run `mvn clean package` from the project root.
 
-```bash
-mvn -pl management-service spring-boot:run
-```
-
-Build the full Maven reactor with `mvn clean package`. Each service can also be started individually; see its README for prerequisites, configuration, and service-specific commands.
-
-Compose initializes the PostgreSQL schemas only when the database volume is empty. If you change the development DDL and want to recreate the local database, `docker compose down -v` removes the PostgreSQL and Kafka volumes, then `docker compose up -d` initializes them again.
+Stop the containers with `docker compose down`; data volumes are preserved. Compose initializes PostgreSQL schemas only when the database volume is empty. If you change the development DDL and want to recreate local data, `docker compose down -v` removes the PostgreSQL, Kafka, and Auth Server signing-key volumes before the next startup. The signing-key volume keeps tokens verifiable across Auth Server container restarts.
 
 ## Registration and account lifecycle
 

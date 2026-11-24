@@ -6,7 +6,14 @@ This guide explains how to use the local Postman collection to exercise the Auth
 
 ## Prerequisites
 
-Start PostgreSQL, Kafka, and Mailpit, then start the services you plan to call. The default service URLs are:
+From the project root, build and start all services and local infrastructure:
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+The default service URLs are:
 
 | Service | URL |
 | --- | --- |
@@ -14,7 +21,7 @@ Start PostgreSQL, Kafka, and Mailpit, then start the services you plan to call. 
 | Consumer Service | `http://localhost:8081` |
 | Management Service | `http://localhost:8082` |
 
-See the [root README](../README.md#start-locally) for startup commands. Open [Mailpit](http://localhost:8025) to read development OTP and invitation emails.
+Open [Mailpit](http://localhost:8025) to read development OTP and invitation emails. For the Maven host-run workflow, see the [root README](../README.md#start-locally); stop the corresponding service container first to avoid a port conflict.
 
 ## Open the collection
 
