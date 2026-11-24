@@ -1,0 +1,35 @@
+---
+"$kind": http-request
+url: "{{MANAGEMENT_SERVICE}}/api/accounts?page=0&size=10&status=&createdFrom=&createdTo=&keyword={{MANAGEMENT_EMAIL}}"
+method: GET
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: "{{MANAGEMENT_ACCESS_TOKEN}}"
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: |-
+    pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+    const data = pm.response.json(); pm.expect(data).to.have.property('content'); const row = data.content.find(item => item.email === pm.environment.get('MANAGEMENT_EMAIL')); if (row) { pm.environment.set('MANAGEMENT_ACCOUNT_ID', row.id); pm.environment.set('MANAGEMENT_ACTIVATION_ID', row.id); }
+order: 1000
+queryParams:
+- key: page
+  value: '0'
+  disabled: false
+- key: size
+  value: '10'
+  disabled: false
+- key: status
+  value: ''
+  disabled: false
+- key: createdFrom
+  value: ''
+  disabled: false
+- key: createdTo
+  value: ''
+  disabled: false
+- key: keyword
+  value: "{{MANAGEMENT_EMAIL}}"
+  disabled: false

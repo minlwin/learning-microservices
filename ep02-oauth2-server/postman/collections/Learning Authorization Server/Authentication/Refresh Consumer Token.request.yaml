@@ -1,0 +1,25 @@
+---
+"$kind": http-request
+url: "{{AUTH_SERVER}}/oauth2/token"
+method: POST
+auth:
+  type: basic
+  credentials:
+  - key: username
+    value: "{{CONSUMER_CLIENT_ID}}"
+  - key: password
+    value: "{{CONSUMER_CLIENT_SECRET}}"
+body:
+  type: urlencoded
+  content:
+  - key: grant_type
+    value: refresh_token
+  - key: refresh_token
+    value: "{{CONSUMER_REFRESH_TOKEN}}"
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: |-
+    pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+    const data = pm.response.json(); pm.expect(data.access_token).to.be.a('string'); pm.environment.set('CONSUMER_ACCESS_TOKEN', data.access_token); pm.environment.set('CONSUMER_REFRESH_TOKEN', data.refresh_token);
+order: 6000

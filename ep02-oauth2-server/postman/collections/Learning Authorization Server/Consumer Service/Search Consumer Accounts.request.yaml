@@ -1,0 +1,38 @@
+---
+"$kind": http-request
+url: "{{CONSUMER_SERVICE}}/api/management/consumer?page=0&size=10&status=Applied&registrationType=Self&createdFrom=&createdTo=&keyword={{CONSUMER_EMAIL}}"
+method: GET
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: "{{MANAGEMENT_ACCESS_TOKEN}}"
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: |-
+    pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+    const data = pm.response.json(); pm.expect(data).to.have.property('content'); const row = data.content.find(item => item.email === pm.environment.get('CONSUMER_EMAIL')); if (row) { pm.environment.set('CONSUMER_ACCOUNT_ID', row.id); }
+order: 1000
+queryParams:
+- key: page
+  value: '0'
+  disabled: false
+- key: size
+  value: '10'
+  disabled: false
+- key: status
+  value: Applied
+  disabled: false
+- key: registrationType
+  value: Self
+  disabled: false
+- key: createdFrom
+  value: ''
+  disabled: false
+- key: createdTo
+  value: ''
+  disabled: false
+- key: keyword
+  value: "{{CONSUMER_EMAIL}}"
+  disabled: false

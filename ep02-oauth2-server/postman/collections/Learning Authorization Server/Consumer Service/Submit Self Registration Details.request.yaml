@@ -1,0 +1,27 @@
+---
+"$kind": http-request
+url: "{{CONSUMER_SERVICE}}/api/mobile/registration"
+method: POST
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: "{{CONSUMER_ONBOARDING_ACCESS_TOKEN}}"
+body:
+  type: json
+  content: |-
+    {
+      "name": "Alice Example",
+      "email": "{{CONSUMER_EMAIL}}",
+      "phone": "09123456789",
+      "dob": "1990-01-01",
+      "address": "Yangon"
+    }
+headers:
+- key: Content-Type
+  value: application/json
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+order: 8000

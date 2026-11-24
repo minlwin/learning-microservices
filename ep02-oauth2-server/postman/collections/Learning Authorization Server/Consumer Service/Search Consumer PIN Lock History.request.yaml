@@ -1,0 +1,35 @@
+---
+"$kind": http-request
+url: "{{CONSUMER_SERVICE}}/api/management/consumer/lock?page=0&size=10&status=Locked&dateFrom=&dateTo=&keyword={{CONSUMER_EMAIL}}"
+method: GET
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: "{{MANAGEMENT_ACCESS_TOKEN}}"
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: |-
+    pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+    pm.expect(pm.response.json()).to.have.property('content');
+order: 6000
+queryParams:
+- key: page
+  value: '0'
+  disabled: false
+- key: size
+  value: '10'
+  disabled: false
+- key: status
+  value: Locked
+  disabled: false
+- key: dateFrom
+  value: ''
+  disabled: false
+- key: dateTo
+  value: ''
+  disabled: false
+- key: keyword
+  value: "{{CONSUMER_EMAIL}}"
+  disabled: false

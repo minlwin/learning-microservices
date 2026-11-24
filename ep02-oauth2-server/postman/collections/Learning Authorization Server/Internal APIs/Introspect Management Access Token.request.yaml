@@ -1,0 +1,23 @@
+---
+"$kind": http-request
+url: "{{AUTH_SERVER}}/api/internal/tokens/introspect"
+method: POST
+auth:
+  type: basic
+  credentials:
+  - key: username
+    value: "{{MANAGEMENT_RESOURCE_ID}}"
+  - key: password
+    value: "{{MANAGEMENT_RESOURCE_SECRET}}"
+body:
+  type: urlencoded
+  content:
+  - key: token
+    value: "{{MANAGEMENT_ACCESS_TOKEN}}"
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: |-
+    pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+    pm.expect(pm.response.json().active).to.eql(true);
+order: 1000

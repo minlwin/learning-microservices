@@ -1,2 +1,5 @@
-$kind: collection
-order: 1000
+{
+  "$kind": "collection",
+  "name": "Self Registration",
+  "order": 2000
+}

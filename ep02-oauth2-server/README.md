@@ -60,6 +60,10 @@ Compose initializes the PostgreSQL schemas only when the database volume is empt
 
 For endpoint-level details, request and response formats, and flow notes, use the linked service READMEs.
 
+## Postman API checks
+
+The Postman collection and local environment are in [`postman/`](postman/collections/Learning%20Authorization%20Server). Select the `Local` environment, start the services, and set the credentials you use locally before sending authenticated requests. The environment includes documented development defaults for the OAuth clients and administrator; replace them if your configuration differs. OTP values are manual: request or resend an OTP, read it from [Mailpit](http://localhost:8025), then set `OTP_CODE` and continue with the validation request. For account lifecycle flows, run requests in the relevant folder order and search for the created account to populate its ID before approval, activation, or update requests.
+
 ## Additional guides
 
 - [Authentication endpoint](readme/authentication-endpoint.md)

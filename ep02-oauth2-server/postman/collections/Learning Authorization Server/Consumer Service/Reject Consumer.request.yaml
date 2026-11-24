@@ -1,0 +1,16 @@
+---
+"$kind": http-request
+url: "{{CONSUMER_SERVICE}}/api/management/consumer/{{CONSUMER_ACCOUNT_ID}}/reject"
+method: PUT
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: "{{MANAGEMENT_ACCESS_TOKEN}}"
+body:
+  type: none
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+order: 4000

@@ -1,0 +1,11 @@
+---
+"$kind": http-request
+url: "{{AUTH_SERVER}}/api/registration/{{SELF_REGISTRATION_ID}}/otp/resend"
+method: POST
+body:
+  type: none
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+order: 3000

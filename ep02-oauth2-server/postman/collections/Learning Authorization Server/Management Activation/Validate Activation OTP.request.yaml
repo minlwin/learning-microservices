@@ -1,0 +1,18 @@
+---
+"$kind": http-request
+url: "{{AUTH_SERVER}}/api/activate/{{MANAGEMENT_ACTIVATION_ID}}/otp/validate"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "otpCode": "{{OTP_CODE}}"
+    }
+headers:
+- key: Content-Type
+  value: application/json
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+order: 2000

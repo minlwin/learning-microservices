@@ -1,6 +1,7 @@
-$kind: collection
-variables:
-  AUTH_SERVER: ""
-  CONSUMER_SERVICE: ""
-  MANAGEMENT_SERVICE: ""
-  self_registration_id: ""
+{
+  "$kind": "collection",
+  "name": "Learning Authorization Server",
+  "description": "Local API checks for Auth Server, Consumer Service, and Management Service. OTP values must be copied from Mailpit after requesting an email. Set Local environment and review the mutation requests before sending them.",
+  "variables": {},
+  "order": 1000
+}

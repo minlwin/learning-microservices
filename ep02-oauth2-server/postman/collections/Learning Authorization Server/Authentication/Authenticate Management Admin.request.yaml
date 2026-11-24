@@ -1,0 +1,22 @@
+---
+"$kind": http-request
+url: "{{AUTH_SERVER}}/api/auth"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "clientId": "{{MANAGEMENT_CLIENT_ID}}",
+      "username": "{{ADMIN_USERNAME}}",
+      "password": "{{ADMIN_PASSWORD}}"
+    }
+headers:
+- key: Content-Type
+  value: application/json
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: |-
+    pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+    const data = pm.response.json(); pm.expect(data.loginTicket).to.be.a('string'); pm.environment.set('MANAGEMENT_LOGIN_TICKET', data.loginTicket);
+order: 1000

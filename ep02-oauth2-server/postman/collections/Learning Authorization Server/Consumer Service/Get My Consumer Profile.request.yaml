@@ -1,0 +1,18 @@
+---
+"$kind": http-request
+url: "{{CONSUMER_SERVICE}}/api/mobile/profile"
+method: GET
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: "{{CONSUMER_ACCESS_TOKEN}}"
+body:
+  type: none
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: |-
+    pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+    pm.expect(pm.response.json()).to.have.property('email');
+order: 9000

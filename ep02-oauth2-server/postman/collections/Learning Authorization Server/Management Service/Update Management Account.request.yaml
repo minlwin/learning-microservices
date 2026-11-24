@@ -1,0 +1,25 @@
+---
+"$kind": http-request
+url: "{{MANAGEMENT_SERVICE}}/api/accounts/{{MANAGEMENT_ACCOUNT_ID}}"
+method: PUT
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: "{{MANAGEMENT_ACCESS_TOKEN}}"
+body:
+  type: json
+  content: |-
+    {
+      "name": "Management Example Updated",
+      "phone": "09123456789",
+      "email": "{{MANAGEMENT_EMAIL}}"
+    }
+headers:
+- key: Content-Type
+  value: application/json
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+order: 3000
