@@ -1,5 +1,7 @@
 # Allowed endpoints and token requests
 
+[Back to project overview](../README.md)
+
 The server exposes application routes under `/api/**` and `POST /oauth2/token`.
 Onboarding and authentication routes are public. `POST /api/logout` requires a
 valid access token. `/api/internal/tokens/introspect` requires separate

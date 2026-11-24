@@ -1,5 +1,7 @@
 # Authentication endpoint
 
+[Back to project overview](../README.md)
+
 POST `/api/auth` with `Content-Type: application/json`:
 
 ```json

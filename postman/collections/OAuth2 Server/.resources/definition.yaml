@@ -1,5 +1,0 @@
-$kind: collection
-variables:
-  BASE_URL: ""
-  ADMIN_USERNAME: ""
-  ADMIN_PASSWORD: ""

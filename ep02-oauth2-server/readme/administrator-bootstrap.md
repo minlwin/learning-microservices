@@ -1,5 +1,7 @@
 # Initial administrator
 
+[Back to project overview](../README.md)
+
 `AdministratorInitializer` runs during application startup inside a transaction.
 If `auth.profile` has no rows, it creates an Identity and an Administrator
 profile using `AdministratorProps`. An existing Identity with the configured

@@ -1,5 +1,7 @@
 # JUnit checks on GitHub
 
+[Back to project overview](../README.md)
+
 ## Install the workflow at the repository root
 
 GitHub only discovers workflows in the repository root's `.github/workflows`.

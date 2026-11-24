@@ -1,5 +1,7 @@
 # Logout from all devices for one profile
 
+[Back to project overview](../README.md)
+
 ```bash
 curl -X POST http://localhost:8080/api/logout \
   -H 'Authorization: Bearer YOUR_ACCESS_TOKEN'
