@@ -1,0 +1,20 @@
+---
+"$kind": http-request
+url: "{{AUTH_SERVER}}/api/registration"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "email": "{{CONSUMER_EMAIL}}"
+    }
+headers:
+- key: Content-Type
+  value: application/json
+scripts:
+- type: afterResponse
+  language: text/javascript
+  code: |-
+    pm.test('HTTP request succeeded', function () { pm.expect(pm.response.code).to.be.within(200, 299); });
+    const data = pm.response.json(); pm.expect(data.key).to.be.a('string'); pm.environment.set('SELF_REGISTRATION_ID', data.key);
+order: 1000
