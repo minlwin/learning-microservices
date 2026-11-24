@@ -276,22 +276,24 @@ For authenticated management users maintaining system PIN lock policies.
 
 | Resource | Method | Endpoint | Description |
 | --- | --- | --- | --- |
-| Account | GET | `/api/accounts` | Search management accounts. |
-| Account | POST | `/api/accounts` | Create a Pending management account and queue its activation invitation. |
-| Account | PUT | `/api/accounts/{id}` | Update account name and phone. |
-| PIN Lock History | GET | `/api/accounts/pin-lock` | Search PIN lock activity for management accounts. |
-| PIN Lock History | PUT | `/api/accounts/pin-lock/{id}/unlock` | Request Auth Server to unlock a permanent PIN lock. |
-| Client System | GET | `/api/setting/systems` | List all configured client systems. |
-| PIN Lock Setting | GET | `/api/setting/pin-locks` | List non-deleted PIN lock settings. |
-| PIN Lock Setting | GET | `/api/setting/pin-locks/systems` | List configured systems available for creating settings. |
-| PIN Lock Setting | POST | `/api/setting/pin-locks/{system}` | Create PIN lock settings for a configured system. |
-| PIN Lock Setting | PUT | `/api/setting/pin-locks/{system}` | Update existing PIN lock settings. |
+| Account | GET | [`/api/accounts`](#search-management-accounts) | Search management accounts. |
+| Account | POST | [`/api/accounts`](#create-a-management-account) | Create a Pending management account and queue its activation invitation. |
+| Account | PUT | [`/api/accounts/{id}`](#update-a-management-account) | Update account name and phone. |
+| PIN Lock History | GET | [`/api/accounts/pin-lock`](#search-pin-lock-history) | Search PIN lock activity for management accounts. |
+| PIN Lock History | PUT | [`/api/accounts/pin-lock/{id}/unlock`](#request-a-permanent-pin-unlock) | Request Auth Server to unlock a permanent PIN lock. |
+| Client System | GET | [`/api/setting/systems`](#list-configured-systems) | List all configured client systems. |
+| PIN Lock Setting | GET | [`/api/setting/pin-locks`](#list-pin-lock-settings) | List non-deleted PIN lock settings. |
+| PIN Lock Setting | GET | [`/api/setting/pin-locks/systems`](#list-systems-available-for-new-settings) | List configured systems available for creating settings. |
+| PIN Lock Setting | POST | [`/api/setting/pin-locks/{system}`](#create-pin-lock-settings) | Create PIN lock settings for a configured system. |
+| PIN Lock Setting | PUT | [`/api/setting/pin-locks/{system}`](#update-pin-lock-settings) | Update existing PIN lock settings. |
 
 ### Account
 
 #### Search management accounts
 
 `GET /api/accounts`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Returns accounts ordered by registeredAt descending, then UUID ascending. No request body. Date filters are inclusive UTC calendar dates.
 
@@ -368,6 +370,8 @@ Response: `200 OK`, `application/json`. Principal page fields are shown; Spring 
 
 `POST /api/accounts`
 
+[Back to Management Endpoints](#management-endpoints)
+
 Checks local email duplication, then calls Auth Server’s internal email-check endpoint with system=Management using resource credentials. Creates a Pending account and records `registeredAt`. In the same transaction it stores a versioned invitation event in the Management Service outbox. Auth Server creates an expiring activation record and sends the invitation email. After the user verifies the email and initializes a password, Auth Server creates an Active Management profile and publishes an activation event; Management Service consumes it and records `Activated` plus `activatedAt`. No management approval is required. Email changes still require a separate identity-synchronization workflow.
 
 ##### Request Form — `AccountRegistrationForm`
@@ -408,6 +412,8 @@ HTTP/1.1 200 OK
 #### Update a management account
 
 `PUT /api/accounts/{id}`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Updates name and phone while preserving status, registeredAt, and activatedAt. Submit the existing email unchanged; changing email returns 400 because identity synchronization is not implemented. Unknown account IDs return 404.
 
@@ -458,6 +464,8 @@ HTTP/1.1 200 OK
 
 `GET /api/accounts/pin-lock`
 
+[Back to Management Endpoints](#management-endpoints)
+
 Returns activity recorded for Management-system accounts, ordered by event time descending, account UUID ascending, then history UUID descending. Date filters are inclusive UTC calendar dates. The history records temporary locks, permanent locks, and permanent unlocks; temporary lock expiration is applied by Auth Server on a later PIN operation.
 
 ##### Search Form — `PinLockHistorySearch`
@@ -498,11 +506,26 @@ curl --get "${BASE_URL}/api/accounts/pin-lock" \
 
 The response is a `Page<PinLockHistoryListItem>` with the standard page metadata described above. No matching records returns an empty `content` list.
 
+#### Request a permanent PIN unlock
+
+`PUT /api/accounts/pin-lock/{id}/unlock`
+
+[Back to Management Endpoints](#management-endpoints)
+
+Releases a permanent PIN lock for the Management account identified by `id`. The authenticated management profile is recorded as the requester. Temporary locks cannot be released through this endpoint; they expire according to Auth Server PIN-lock rules. The request has no body and a successful response is `200 OK` with an empty body. An unknown Management account returns `404 Not Found`.
+
+```bash
+curl -X PUT "${BASE_URL}/api/accounts/pin-lock/<management-account-id>/unlock" \
+  -H "Authorization: Bearer ${MANAGEMENT_TOKEN}"
+```
+
 ### Client System
 
 #### List configured systems
 
 `GET /api/setting/systems`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Returns all systems from `app.client.systems` in configuration order, including systems that already have PIN lock settings. Request body, path parameters, and query parameters: none.
 
@@ -534,6 +557,8 @@ Response: `200 OK`, `application/json`.
 #### List PIN lock settings
 
 `GET /api/setting/pin-locks`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Returns non-deleted settings sorted by system name ascending. Request body, path parameters, and query parameters: none.
 
@@ -572,6 +597,8 @@ Response: `200 OK`, `application/json`.
 
 `GET /api/setting/pin-locks/systems`
 
+[Back to Management Endpoints](#management-endpoints)
+
 Returns configured systems without non-deleted PIN lock settings. Results are distinct and sorted ascending. A system with a deleted record is available again. This differs from `/api/setting/systems`, which lists all configured systems.
 
 Request body, path parameters, and query parameters: none.
@@ -602,6 +629,8 @@ Response: `200 OK`, `application/json`. Example after creating Consumer settings
 #### Create PIN lock settings
 
 `POST /api/setting/pin-locks/{system}`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Creates settings for a configured system. Existing non-deleted settings return 400. If a deleted record exists, creation restores it and replaces its policy values.
 
@@ -653,6 +682,8 @@ HTTP/1.1 200 OK
 #### Update PIN lock settings
 
 `PUT /api/setting/pin-locks/{system}`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Replaces all policy values for an existing non-deleted record. Missing or deleted settings return 404. The system must still be configured; an unknown system returns 400.
 

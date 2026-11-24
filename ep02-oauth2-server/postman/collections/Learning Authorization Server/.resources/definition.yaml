@@ -1,0 +1,6 @@
+$kind: collection
+variables:
+  AUTH_SERVER: ""
+  CONSUMER_SERVICE: ""
+  MANAGEMENT_SERVICE: ""
+  self_registration_id: ""

@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{AUTH_SERVER}}/api/registration/{{self_registration_id}}/otp/resend"
+method: GET
+body:
+  type: json
+  content: ""
+order: 3000

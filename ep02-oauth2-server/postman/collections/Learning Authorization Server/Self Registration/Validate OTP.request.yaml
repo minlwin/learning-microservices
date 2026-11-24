@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{AUTH_SERVER}}/api/registration/{{self_registration_id}}/otp/validate"
+method: POST
+body:
+  type: json
+  content: ""
+order: 2000

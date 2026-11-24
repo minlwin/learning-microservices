@@ -536,27 +536,29 @@ Client and resource credentials are separate. See [consumer-service](../consumer
 
 | Resource | Method | Endpoint | Description |
 | --- | --- | --- | --- |
-| Authentication | POST | `/api/auth` | Validate credentials and issue a login ticket. |
-| Token | POST | `/oauth2/token` | Exchange a ticket or refresh tokens. |
-| Logout | POST | `/api/logout` | Invalidate tokens and tickets for the authenticated profile. |
-| Registration | POST | `/api/registration` | Register email and send OTP. |
-| Registration | POST | `/api/registration/{id}/otp/request` | Request the first OTP for a management invitation. |
-| Registration | POST | `/api/registration/{id}/otp/validate` | Validate OTP. |
-| Registration | POST | `/api/registration/{id}/otp/resend` | Resend OTP. |
-| Registration | POST | `/api/registration/{id}/initialize` | Initialize the Consumer password. |
-| Activation | POST | `/api/activate/{id}` | Request activation OTP. |
-| Activation | POST | `/api/activate/{id}/otp/validate` | Validate activation OTP. |
-| Activation | POST | `/api/activate/{id}/otp/resend` | Resend activation OTP. |
-| Activation | POST | `/api/activate/{id}/initialize` | Initialize the Management password. |
-| Internal Token | POST | `/api/internal/tokens/introspect` | Validate token with live profile state. |
-| Internal Profile | POST | `/api/internal/profiles/email/check` | Check profile email duplication within a system. |
-| Internal PIN Lock | POST | `/api/internal/pin-locks/unlock` | Release a permanent PIN lock for an authorized system. |
+| Authentication | POST | [`/api/auth`](#authenticate) | Validate credentials and issue a login ticket. |
+| Token | POST | [`/oauth2/token`](#exchange-a-login-ticket) / [refresh](#refresh-tokens) | Exchange a ticket or refresh tokens. |
+| Logout | POST | [`/api/logout`](#log-out-all-devices-for-the-profile) | Invalidate tokens and tickets for the authenticated profile. |
+| Registration | POST | [`/api/registration`](#register-email) | Register email and send OTP. |
+| Registration | POST | [`/api/registration/{id}/otp/request`](#request-invitation-otp) | Request the first OTP for a management invitation. |
+| Registration | POST | [`/api/registration/{id}/otp/validate`](#validate-registration-otp) | Validate OTP. |
+| Registration | POST | [`/api/registration/{id}/otp/resend`](#resend-registration-otp) | Resend OTP. |
+| Registration | POST | [`/api/registration/{id}/initialize`](#initialize-consumer-password) | Initialize the Consumer password. |
+| Activation | POST | [`/api/activate/{id}`](#request-activation-otp) | Request activation OTP. |
+| Activation | POST | [`/api/activate/{id}/otp/validate`](#validate-activation-otp) | Validate activation OTP. |
+| Activation | POST | [`/api/activate/{id}/otp/resend`](#resend-activation-otp) | Resend activation OTP. |
+| Activation | POST | [`/api/activate/{id}/initialize`](#initialize-management-password) | Initialize the Management password. |
+| Internal Token | POST | [`/api/internal/tokens/introspect`](#introspect-an-access-token) | Validate token with live profile state. |
+| Internal Profile | POST | [`/api/internal/profiles/email/check`](#check-email-duplication-within-a-system) | Check profile email duplication within a system. |
+| Internal PIN Lock | POST | [`/api/internal/pin-locks/unlock`](#internal-permanent-pin-unlock) | Release a permanent PIN lock for an authorized system. |
 
 ### Authentication and tokens
 
 #### Authenticate
 
 `POST /api/auth`
+
+[Back to API endpoints](#api-endpoints)
 
 Requires an Active profile compatible with the client’s configured system and role. Returns a one-time, client-bound login ticket; this is not an OpenID Connect ID token. Response caching is disabled.
 
@@ -593,6 +595,8 @@ Response: `200 OK`, `application/json`.
 #### Exchange a login ticket
 
 `POST /oauth2/token`
+
+[Back to API endpoints](#api-endpoints)
 
 The ticket must be unexpired, unused, and issued for the authenticated client.
 
@@ -637,6 +641,8 @@ Response: `200 OK`, `application/json`.
 #### Refresh tokens
 
 `POST /oauth2/token`
+
+[Back to API endpoints](#api-endpoints)
 
 Refresh tokens rotate; store the latest returned token for the next refresh.
 
@@ -684,6 +690,8 @@ Default clients: `consumer-demo` uses system Consumer and scope/audience `consum
 
 `POST /api/logout`
 
+[Back to API endpoints](#api-endpoints)
+
 Increments the authenticated profile’s token version, invalidating its outstanding tickets, access tokens, and refresh tokens. Other profiles of the same identity are unaffected. Request body, path parameters, and query parameters: none.
 
 ##### Request Headers
@@ -717,6 +725,8 @@ Self-registration creates a Pending Consumer profile after email verification an
 
 `POST /api/registration`
 
+[Back to API endpoints](#api-endpoints)
+
 ##### Request Form — `RegistrationForm`
 
 | Field | Type | Location | Required | Sample Value | Definition |
@@ -743,9 +753,11 @@ Response: `200 OK`, `application/json`.
 }
 ```
 
-#### Validate OTP
+#### Validate registration OTP
 
 `POST /api/registration/{id}/otp/validate`
+
+[Back to API endpoints](#api-endpoints)
 
 ##### Path Parameters
 
@@ -777,9 +789,11 @@ HTTP/1.1 200 OK
 
 ```
 
-#### Resend OTP
+#### Resend registration OTP
 
 `POST /api/registration/{id}/otp/resend`
+
+[Back to API endpoints](#api-endpoints)
 
 ##### Path Parameters
 
@@ -813,11 +827,15 @@ Management-created Consumer accounts are already Approved in Consumer Service be
 
 `POST /api/registration/{id}/otp/request`
 
+[Back to API endpoints](#api-endpoints)
+
 Request body: none. The endpoint only accepts an unexpired, unused management invitation. Invitations expire after `app.auth.consumer-invitation-lifetime` (7 days by default). OTP validation and initialization use the same endpoints described above. Management invitation initialization creates an Active profile and therefore returns no onboarding ticket.
 
-#### Initialize password
+#### Initialize Consumer password
 
 `POST /api/registration/{id}/initialize`
+
+[Back to API endpoints](#api-endpoints)
 
 ##### Path Parameters
 
@@ -865,6 +883,8 @@ Management Service creates a local Pending account and stores a versioned invita
 
 `POST /api/activate/{id}`
 
+[Back to API endpoints](#api-endpoints)
+
 ##### Path Parameters
 
 | Field | Type | Location | Required | Sample Value | Definition |
@@ -889,9 +909,11 @@ HTTP/1.1 200 OK
 
 ```
 
-#### Validate OTP
+#### Validate activation OTP
 
 `POST /api/activate/{id}/otp/validate`
+
+[Back to API endpoints](#api-endpoints)
 
 ##### Path Parameters
 
@@ -923,9 +945,11 @@ HTTP/1.1 200 OK
 
 ```
 
-#### Resend OTP
+#### Resend activation OTP
 
 `POST /api/activate/{id}/otp/resend`
+
+[Back to API endpoints](#api-endpoints)
 
 ##### Path Parameters
 
@@ -953,9 +977,11 @@ HTTP/1.1 200 OK
 
 ```
 
-#### Initialize password
+#### Initialize Management password
 
 `POST /api/activate/{id}/initialize`
+
+[Back to API endpoints](#api-endpoints)
 
 ##### Path Parameters
 
@@ -994,6 +1020,8 @@ Response: `200 OK`, `application/json`.
 #### Introspect an access token
 
 `POST /api/internal/tokens/introspect`
+
+[Back to API endpoints](#api-endpoints)
 
 Checks persisted authorization, token expiration/revocation, profile state, token version, and resource audience permission on every request. Uses resource credentials, not client credentials or user bearer authentication. No response caching.
 
@@ -1062,6 +1090,8 @@ Invalid, expired, revoked, or disallowed-audience tokens return `200 OK`:
 
 `POST /api/internal/profiles/email/check`
 
+[Back to API endpoints](#api-endpoints)
+
 Requires resource credentials and explicit `app.auth.resources.<resource-id>.email-check-systems` permission. Defaults grant Consumer to consumer-service, and Consumer/Management to management-service. New resources have no email-check permission until configured. The requested system must exist in `app.auth.systems`.
 
 ##### Request Form — `EmailCheckForm`
@@ -1113,6 +1143,8 @@ Pending, Active, Locked, and Closed profiles count as existing. An identity used
 ### Internal permanent PIN unlock
 
 `POST /api/internal/pin-locks/unlock` requires HTTP Basic resource credentials. The resource must list the requested system under `app.auth.resources.<resource-id>.pin-lock-systems`.
+
+[Back to API endpoints](#api-endpoints)
 
 | Field | Type | Required | Sample | Definition |
 | --- | --- | --- | --- | --- |

@@ -310,19 +310,21 @@ For authenticated management users reviewing Consumer accounts and operational h
 
 | Resource | Method | Endpoint | Description |
 | --- | --- | --- | --- |
-| Account | GET | `/api/management/consumer` | Search accounts. |
-| Account | POST | `/api/management/consumer` | Register an account on behalf of a consumer. |
-| Account | PUT | `/api/management/consumer/{id}/approve` | Approve an Applied account. |
-| Account | PUT | `/api/management/consumer/{id}/reject` | Reject an Applied account. |
-| Access History | GET | `/api/management/consumer/access` | Search login/logout events. |
-| PIN Lock | GET | `/api/management/consumer/lock` | Search lock events and current lock state. |
-| PIN Lock | PUT | `/api/management/consumer/lock/{id}/unlock` | Request Auth Server to unlock a permanent PIN lock. |
+| Account | GET | [`/api/management/consumer`](#search-accounts) | Search accounts. |
+| Account | POST | [`/api/management/consumer`](#register-a-consumer) | Register an account on behalf of a consumer. |
+| Account | PUT | [`/api/management/consumer/{id}/approve`](#approve-a-consumer) | Approve an Applied account. |
+| Account | PUT | [`/api/management/consumer/{id}/reject`](#reject-a-consumer) | Reject an Applied account. |
+| Access History | GET | [`/api/management/consumer/access`](#search-access-history) | Search login/logout events. |
+| PIN Lock | GET | [`/api/management/consumer/lock`](#search-pin-lock-history) | Search lock events and current lock state. |
+| PIN Lock | PUT | [`/api/management/consumer/lock/{id}/unlock`](#unlock-a-consumer) | Request Auth Server to unlock a permanent PIN lock. |
 
 ### Account
 
 #### Search accounts
 
 `GET /api/management/consumer`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Filters registration records and returns a page, ordered by registration instant descending and account UUID ascending. No request body.
 
@@ -405,6 +407,8 @@ Response: `200 OK`, `application/json`. The JSON below shows the item and princi
 
 `POST /api/management/consumer`
 
+[Back to Management Endpoints](#management-endpoints)
+
 Creates an Applied account with registration type Management. Initializes access status to Logout and lock status to Active in the same transaction. Rejects duplicate emails in Consumer Service and when Auth Server already has a Consumer profile. Approval creates a durable event; Auth Server then creates the time-limited invitation and queues its email for delivery.
 
 ##### Request Form — `ConsumerRegistrationForm`
@@ -454,6 +458,8 @@ HTTP/1.1 200 OK
 
 `PUT /api/management/consumer/{id}/approve`
 
+[Back to Management Endpoints](#management-endpoints)
+
 Changes Applied to Approved and records approvedAt. Repeated approval returns 400; an unknown account returns 404. Approval preserves access and lock states. A transactional outbox publishes the approval event. For self-registration, Auth Server activates the Pending profile. For management registration, Auth Server creates an invitation registration record and durably queues the invitation email.
 
 ##### Path Parameters
@@ -472,6 +478,8 @@ curl -X PUT "${BASE_URL}/api/management/consumer/550e8400-e29b-41d4-a716-4466554
 #### Reject a consumer
 
 `PUT /api/management/consumer/{id}/reject`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Changes an Applied account to Rejected, records `rejectedAt`, and writes a rejection event to the transactional outbox. For self-registration, Auth Server closes the related Pending profile. Only Applied accounts can be rejected; repeated or otherwise invalid transitions return 400.
 
@@ -499,6 +507,8 @@ HTTP/1.1 200 OK
 #### Search access history
 
 `GET /api/management/consumer/access`
+
+[Back to Management Endpoints](#management-endpoints)
 
 Returns login/logout events, ordered by event instant descending, account UUID ascending, then revision descending. Dates filter the access event, not registration. No request body.
 
@@ -583,6 +593,8 @@ Response: `200 OK`, `application/json`. The JSON below shows the item and princi
 
 `GET /api/management/consumer/lock`
 
+[Back to Management Endpoints](#management-endpoints)
+
 Returns PIN lock events with each account’s current lock state. Ordered by lock instant descending, account UUID ascending, then event UUID descending. Without a status filter, events with no current lock record are included with null state fields. No request body.
 
 ##### Search Form — `LockHistorySearch`
@@ -664,6 +676,8 @@ Response: `200 OK`, `application/json`. The JSON below shows the item and princi
 
 `PUT /api/management/consumer/lock/{id}/unlock`
 
+[Back to Management Endpoints](#management-endpoints)
+
 Requests Auth Server to release the consumer's permanent PIN lock. Auth Server is the source of truth and publishes the unlock event; this service records the event and updates its `AccountLockStatus` projection asynchronously. Temporary PIN locks cannot be released through this endpoint. Releasing a lock preserves PIN lock history, account approval, and access state. Once the unlock event is consumed, past events remain visible, but no longer match the Locked current-status filter.
 
 ##### Path Parameters
@@ -699,14 +713,16 @@ For a consumer submitting personal information or viewing their own profile. The
 
 | Resource | Method | Endpoint | Description |
 | --- | --- | --- | --- |
-| Registration | POST | `/api/mobile/registration` | Submit the authenticated consumer’s information. |
-| Profile | GET | `/api/mobile/profile` | Read the authenticated consumer’s profile. |
+| Registration | POST | [`/api/mobile/registration`](#register-consumer-information) | Submit the authenticated consumer’s information. |
+| Profile | GET | [`/api/mobile/profile`](#get-my-profile) | Read the authenticated consumer’s profile. |
 
 ### Registration
 
 #### Register consumer information
 
 `POST /api/mobile/registration`
+
+[Back to Consumer Mobile Endpoints](#consumer-mobile-endpoints)
 
 Creates an Applied account with Self registration type, Logout access status, and Active lock status. The email must exactly match the trusted authenticated username; another email returns 403. Duplicate registration returns 400. Requires a Pending Consumer profile and the restricted `consumer.onboarding` scope. The normal Consumer API scope is unavailable until Auth Server processes the approval event and activates the profile.
 
@@ -758,6 +774,8 @@ HTTP/1.1 200 OK
 #### Get my profile
 
 `GET /api/mobile/profile`
+
+[Back to Consumer Mobile Endpoints](#consumer-mobile-endpoints)
 
 Returns the consumer’s own account, including current lock/access status. No account ID or email may be supplied to select another user.
 
